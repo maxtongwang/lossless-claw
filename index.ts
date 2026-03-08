@@ -43,6 +43,7 @@ type PluginEnvSnapshot = {
   lcmSummaryModel: string;
   lcmSummaryProvider: string;
   openclawProvider: string;
+  openclawDefaultModel: string;
   agentDir: string;
   home: string;
 };
@@ -62,9 +63,25 @@ function snapshotPluginEnv(env: NodeJS.ProcessEnv = process.env): PluginEnvSnaps
     lcmSummaryModel: env.LCM_SUMMARY_MODEL?.trim() ?? "",
     lcmSummaryProvider: env.LCM_SUMMARY_PROVIDER?.trim() ?? "",
     openclawProvider: env.OPENCLAW_PROVIDER?.trim() ?? "",
+    openclawDefaultModel: "",
     agentDir: env.OPENCLAW_AGENT_DIR?.trim() || env.PI_CODING_AGENT_DIR?.trim() || "",
     home: env.HOME?.trim() ?? "",
   };
+}
+
+/** Read OpenClaw's configured default model from the validated runtime config. */
+function readDefaultModelFromConfig(config: unknown): string {
+  if (!config || typeof config !== "object") {
+    return "";
+  }
+
+  const model = (config as { agents?: { defaults?: { model?: unknown } } }).agents?.defaults?.model;
+  if (typeof model === "string") {
+    return model.trim();
+  }
+
+  const primary = (model as { primary?: unknown } | undefined)?.primary;
+  return typeof primary === "string" ? primary.trim() : "";
 }
 
 /** Resolve common provider API keys from environment. */
@@ -596,6 +613,7 @@ function readLatestAssistantReply(messages: unknown[]): string | undefined {
 /** Construct LCM dependencies from plugin API/runtime surfaces. */
 function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
   const envSnapshot = snapshotPluginEnv();
+  envSnapshot.openclawDefaultModel = readDefaultModelFromConfig(api.config);
   const readEnv: ReadEnvFn = (key) => process.env[key];
   const pluginConfig =
     api.pluginConfig && typeof api.pluginConfig === "object" && !Array.isArray(api.pluginConfig)
@@ -789,7 +807,8 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
       }
     },
     resolveModel: (modelRef, providerHint) => {
-      const raw = (modelRef ?? envSnapshot.lcmSummaryModel).trim();
+      const raw =
+        (modelRef?.trim() || envSnapshot.lcmSummaryModel || envSnapshot.openclawDefaultModel).trim();
       if (!raw) {
         throw new Error("No model configured for LCM summarization.");
       }

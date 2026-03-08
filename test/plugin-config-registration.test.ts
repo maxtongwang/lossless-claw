@@ -67,6 +67,18 @@ function buildApi(pluginConfig: Record<string, unknown>): {
   };
 }
 
+function defaultModelConfig(model: string): Record<string, unknown> {
+  return {
+    agents: {
+      defaults: {
+        model: {
+          primary: model,
+        },
+      },
+    },
+  };
+}
+
 describe("lcm plugin registration", () => {
   const dbPaths = new Set<string>();
 
@@ -107,5 +119,27 @@ describe("lcm plugin registration", () => {
     expect(infoLog).toHaveBeenCalledWith(
       `[lcm] Plugin loaded (enabled=true, db=${dbPath}, threshold=0.33)`,
     );
+  });
+
+  it("inherits OpenClaw's default model for summarization when no LCM model override is set", () => {
+    const { api, getFactory } = buildApi({
+      enabled: true,
+    });
+    api.config = defaultModelConfig("anthropic/claude-sonnet-4-6") as OpenClawPluginApi["config"];
+
+    lcmPlugin.register(api);
+
+    const factory = getFactory();
+    expect(factory).toBeTypeOf("function");
+
+    const engine = factory!() as { deps?: { resolveModel: (modelRef?: string, providerHint?: string) => unknown } };
+    const resolved = engine.deps?.resolveModel(undefined, undefined) as
+      | { provider: string; model: string }
+      | undefined;
+
+    expect(resolved).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+    });
   });
 });
