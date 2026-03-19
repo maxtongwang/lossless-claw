@@ -146,3 +146,5 @@
 {"type":"close","timestamp":"2026-03-19T18:46:27.707224Z","issue_id":"lossless-claw-f50.2","payload":{}}
 {"type":"status_update","timestamp":"2026-03-19T18:52:25.828633Z","issue_id":"lossless-claw-f50.3","payload":{"status":"in_progress"}}
 {"type":"close","timestamp":"2026-03-19T18:55:16.41593Z","issue_id":"lossless-claw-f50.3","payload":{}}
+{"type":"status_update","timestamp":"2026-03-19T18:55:28.835401Z","issue_id":"lossless-claw-f50.4","payload":{"status":"in_progress"}}
+{"type":"close","timestamp":"2026-03-19T18:56:49.54923Z","issue_id":"lossless-claw-f50.4","payload":{}}

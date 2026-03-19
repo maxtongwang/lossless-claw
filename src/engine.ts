@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, createReadStream, openSync, readSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { createInterface } from "node:readline";
 import type {
   ContextEngine,
   ContextEngineInfo,
@@ -751,33 +752,61 @@ function parseBootstrapJsonl(raw: string, options?: {
   return { messages, sawNonWhitespace, hadMalformedLine };
 }
 
-/** Load recoverable messages from a JSON/JSONL session file. */
-function readLeafPathMessages(sessionFile: string): AgentMessage[] {
-  let raw = "";
+/** Load recoverable messages from a JSON/JSONL session file without full-file reads for JSONL. */
+async function readLeafPathMessages(sessionFile: string): Promise<AgentMessage[]> {
   try {
-    raw = readFileSync(sessionFile, "utf8");
+    let sawNonWhitespace = false;
+    let jsonArrayMode = false;
+    let jsonArrayBuffer = "";
+    const messages: AgentMessage[] = [];
+    const stream = createReadStream(sessionFile, { encoding: "utf8" });
+    const lines = createInterface({
+      input: stream,
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of lines) {
+      if (!sawNonWhitespace) {
+        const trimmed = line.trim();
+        if (trimmed) {
+          sawNonWhitespace = true;
+          if (trimmed.startsWith("[")) {
+            jsonArrayMode = true;
+          }
+        }
+      }
+
+      if (jsonArrayMode) {
+        jsonArrayBuffer += `${line}\n`;
+        continue;
+      }
+
+      const parsed = parseBootstrapJsonl(line);
+      if (parsed.messages.length > 0) {
+        messages.push(...parsed.messages);
+      }
+    }
+
+    if (jsonArrayMode) {
+      const trimmed = jsonArrayBuffer.trim();
+      if (!trimmed) {
+        return [];
+      }
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (!Array.isArray(parsed)) {
+          return [];
+        }
+        return parsed.filter(isBootstrapMessage);
+      } catch {
+        return [];
+      }
+    }
+
+    return messages;
   } catch {
     return [];
   }
-
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return [];
-  }
-
-  if (trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed.filter(isBootstrapMessage);
-    } catch {
-      return [];
-    }
-  }
-
-  return parseBootstrapJsonl(raw).messages;
 }
 
 function readFileSegment(sessionFile: string, offset: number): string | null {
@@ -1590,7 +1619,7 @@ export class LcmContextEngine implements ContextEngine {
             }
           }
 
-          const historicalMessages = readLeafPathMessages(params.sessionFile);
+          const historicalMessages = await readLeafPathMessages(params.sessionFile);
 
           // First-time import path: no LCM rows yet, so seed directly from the
           // active leaf context snapshot.

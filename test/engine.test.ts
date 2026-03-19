@@ -1487,6 +1487,40 @@ describe("LcmContextEngine.bootstrap", () => {
     expect(singleSpy).not.toHaveBeenCalled();
   });
 
+  it("streams JSONL replay and skips malformed lines while keeping later messages", async () => {
+    const sessionFile = createSessionFilePath("streaming-jsonl");
+    const lines: string[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      const role = index % 2 === 0 ? "user" : "assistant";
+      lines.push(
+        JSON.stringify({
+          message: {
+            role,
+            content: [{ type: "text", text: `${role}-${index}` }],
+          },
+        }),
+      );
+      if (index === 17) {
+        lines.push("{ malformed json line");
+      }
+    }
+    writeFileSync(sessionFile, `${lines.join("\n")}\n`, "utf8");
+
+    const engine = createEngine();
+    const sessionId = "bootstrap-streaming-jsonl";
+
+    const result = await engine.bootstrap({ sessionId, sessionFile });
+    expect(result.bootstrapped).toBe(true);
+    expect(result.importedMessages).toBe(40);
+
+    const conversation = await engine.getConversationStore().getConversationBySessionId(sessionId);
+    expect(conversation).not.toBeNull();
+    const stored = await engine.getConversationStore().getMessages(conversation!.conversationId);
+    expect(stored).toHaveLength(40);
+    expect(stored[0]?.content).toBe("user-0");
+    expect(stored[39]?.content).toBe("assistant-39");
+  });
+
   it("prepareSubagentSpawn resolves parent conversation by sessionKey before UUID backfill", async () => {
     const sessionKey = "agent:main:main";
     const engine = createEngineWithDepsOverrides({
