@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -711,6 +711,46 @@ function isBootstrapMessage(value: unknown): value is AgentMessage {
   return "content" in msg || ("command" in msg && "output" in msg);
 }
 
+function extractBootstrapMessageCandidate(value: unknown): AgentMessage | null {
+  const candidate =
+    value && typeof value === "object" && "message" in value
+      ? (value as { message?: unknown }).message
+      : value;
+  return isBootstrapMessage(candidate) ? candidate : null;
+}
+
+function parseBootstrapJsonl(raw: string, options?: {
+  strict?: boolean;
+}): { messages: AgentMessage[]; sawNonWhitespace: boolean; hadMalformedLine: boolean } {
+  const messages: AgentMessage[] = [];
+  const lines = raw.split(/\r?\n/);
+  let sawNonWhitespace = false;
+  let hadMalformedLine = false;
+  for (const line of lines) {
+    const item = line.trim();
+    if (!item) {
+      continue;
+    }
+    sawNonWhitespace = true;
+    try {
+      const parsed = JSON.parse(item);
+      const candidate = extractBootstrapMessageCandidate(parsed);
+      if (candidate) {
+        messages.push(candidate);
+        continue;
+      }
+      if (options?.strict) {
+        hadMalformedLine = true;
+      }
+    } catch {
+      if (options?.strict) {
+        hadMalformedLine = true;
+      }
+    }
+  }
+  return { messages, sawNonWhitespace, hadMalformedLine };
+}
+
 /** Load recoverable messages from a JSON/JSONL session file. */
 function readLeafPathMessages(sessionFile: string): AgentMessage[] {
   let raw = "";
@@ -737,27 +777,122 @@ function readLeafPathMessages(sessionFile: string): AgentMessage[] {
     }
   }
 
-  const messages: AgentMessage[] = [];
-  const lines = raw.split(/\r?\n/);
-  for (const line of lines) {
-    const item = line.trim();
-    if (!item) {
-      continue;
+  return parseBootstrapJsonl(raw).messages;
+}
+
+function readFileSegment(sessionFile: string, offset: number): string | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(sessionFile, "r");
+    const stats = statSync(sessionFile);
+    const safeOffset = Math.max(0, Math.min(Math.floor(offset), stats.size));
+    const length = stats.size - safeOffset;
+    if (length <= 0) {
+      return "";
     }
-    try {
-      const parsed = JSON.parse(item);
-      const candidate =
-        parsed && typeof parsed === "object" && "message" in parsed
-          ? (parsed as { message?: unknown }).message
-          : parsed;
-      if (isBootstrapMessage(candidate)) {
-        messages.push(candidate);
-      }
-    } catch {
-      // Skip malformed lines.
+    const buffer = Buffer.alloc(length);
+    readSync(fd, buffer, 0, length, safeOffset);
+    return buffer.toString("utf8");
+  } catch {
+    return null;
+  } finally {
+    if (fd != null) {
+      closeSync(fd);
     }
   }
-  return messages;
+}
+
+function readLastJsonlEntryBeforeOffset(sessionFile: string, offset: number): string | null {
+  const chunkSize = 16_384;
+  let fd: number | null = null;
+  try {
+    const safeOffset = Math.max(0, Math.floor(offset));
+    if (safeOffset <= 0) {
+      return null;
+    }
+
+    fd = openSync(sessionFile, "r");
+    let cursor = safeOffset;
+    let carry = "";
+    while (cursor > 0) {
+      const start = Math.max(0, cursor - chunkSize);
+      const length = cursor - start;
+      const buffer = Buffer.alloc(length);
+      readSync(fd, buffer, 0, length, start);
+      carry = buffer.toString("utf8") + carry;
+
+      const trimmedEnd = carry.replace(/\s+$/u, "");
+      if (!trimmedEnd) {
+        cursor = start;
+        carry = "";
+        continue;
+      }
+
+      const newlineIndex = Math.max(trimmedEnd.lastIndexOf("\n"), trimmedEnd.lastIndexOf("\r"));
+      if (newlineIndex >= 0) {
+        const candidate = trimmedEnd.slice(newlineIndex + 1).trim();
+        if (candidate) {
+          return candidate;
+        }
+        carry = trimmedEnd.slice(0, newlineIndex);
+        cursor = start;
+        continue;
+      }
+
+      if (start === 0) {
+        return trimmedEnd.trim() || null;
+      }
+      cursor = start;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd != null) {
+      closeSync(fd);
+    }
+  }
+}
+
+function readAppendedLeafPathMessages(params: {
+  sessionFile: string;
+  offset: number;
+}): { messages: AgentMessage[]; canUseAppendOnly: boolean; sawNonWhitespace: boolean } {
+  const raw = readFileSegment(params.sessionFile, params.offset);
+  if (raw == null) {
+    return { messages: [], canUseAppendOnly: false, sawNonWhitespace: false };
+  }
+
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { messages: [], canUseAppendOnly: true, sawNonWhitespace: false };
+  }
+
+  if (trimmed.startsWith("[")) {
+    return { messages: [], canUseAppendOnly: false, sawNonWhitespace: true };
+  }
+
+  const parsed = parseBootstrapJsonl(raw, { strict: true });
+  if (parsed.hadMalformedLine) {
+    return { messages: [], canUseAppendOnly: false, sawNonWhitespace: parsed.sawNonWhitespace };
+  }
+
+  return {
+    messages: parsed.messages,
+    canUseAppendOnly: true,
+    sawNonWhitespace: parsed.sawNonWhitespace,
+  };
+}
+
+function readBootstrapMessageFromJsonLine(line: string | null): AgentMessage | null {
+  if (!line) {
+    return null;
+  }
+  try {
+    return extractBootstrapMessageCandidate(JSON.parse(line));
+  } catch {
+    return null;
+  }
 }
 
 function messageIdentity(role: string, content: string): string {
@@ -1376,6 +1511,83 @@ export class LcmContextEngine implements ContextEngine {
               importedMessages: 0,
               reason: conversation.bootstrappedAt ? "already bootstrapped" : "conversation already up to date",
             };
+          }
+
+          if (
+            existingCount > 0 &&
+            bootstrapState &&
+            bootstrapState.sessionFilePath === params.sessionFile &&
+            sessionFileSize > bootstrapState.lastSeenSize &&
+            sessionFileMtimeMs >= bootstrapState.lastSeenMtimeMs
+          ) {
+            const latestDbMessage = await this.conversationStore.getLastMessage(conversationId);
+            const latestDbHash = latestDbMessage
+              ? createBootstrapEntryHash({
+                  role: latestDbMessage.role,
+                  content: latestDbMessage.content,
+                  tokenCount: latestDbMessage.tokenCount,
+                })
+              : null;
+            const tailEntryRaw = readLastJsonlEntryBeforeOffset(
+              params.sessionFile,
+              bootstrapState.lastProcessedOffset,
+            );
+            const tailEntryMessage = readBootstrapMessageFromJsonLine(tailEntryRaw);
+            const tailEntryHash = tailEntryMessage
+              ? createBootstrapEntryHash(toStoredMessage(tailEntryMessage))
+              : null;
+
+            if (
+              latestDbHash &&
+              latestDbHash === bootstrapState.lastProcessedEntryHash &&
+              tailEntryHash &&
+              tailEntryHash === bootstrapState.lastProcessedEntryHash
+            ) {
+              const appended = readAppendedLeafPathMessages({
+                sessionFile: params.sessionFile,
+                offset: bootstrapState.lastProcessedOffset,
+              });
+              if (appended.canUseAppendOnly) {
+                if (!conversation.bootstrappedAt) {
+                  await this.conversationStore.markConversationBootstrapped(conversationId);
+                }
+
+                let importedMessages = 0;
+                for (const message of appended.messages) {
+                  const ingestResult = await this.ingestSingle({
+                    sessionId: params.sessionId,
+                    sessionKey: params.sessionKey,
+                    message,
+                  });
+                  if (ingestResult.ingested) {
+                    importedMessages += 1;
+                  }
+                }
+
+                const lastAppendedMessage =
+                  appended.messages.length > 0
+                    ? appended.messages[appended.messages.length - 1]!
+                    : tailEntryMessage;
+                await persistBootstrapState(
+                  conversationId,
+                  lastAppendedMessage ? [lastAppendedMessage] : [],
+                );
+
+                if (importedMessages > 0) {
+                  return {
+                    bootstrapped: true,
+                    importedMessages,
+                    reason: "reconciled missing session messages",
+                  };
+                }
+
+                return {
+                  bootstrapped: false,
+                  importedMessages: 0,
+                  reason: conversation.bootstrappedAt ? "already bootstrapped" : "conversation already up to date",
+                };
+              }
+            }
           }
 
           const historicalMessages = readLeafPathMessages(params.sessionFile);
