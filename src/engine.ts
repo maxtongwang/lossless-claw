@@ -1404,7 +1404,10 @@ export class LcmContextEngine implements ContextEngine {
     conversationId: number;
     message: AgentMessage;
   }): Promise<{ rewrittenMessage: AgentMessage; fileIds: string[] } | null> {
-    if (params.message.role !== "toolResult" || !("content" in params.message)) {
+    if (
+      (params.message.role !== "toolResult" && params.message.role !== "tool") ||
+      !("content" in params.message)
+    ) {
       return null;
     }
     if (!Array.isArray(params.message.content)) {
@@ -1415,6 +1418,20 @@ export class LcmContextEngine implements ContextEngine {
     const rewrittenContent: unknown[] = [];
     const fileIds: string[] = [];
     let interceptedAny = false;
+    const topLevel = params.message as Record<string, unknown>;
+    const topLevelToolCallId =
+      safeString(topLevel.toolCallId) ??
+      safeString(topLevel.tool_call_id) ??
+      safeString(topLevel.toolUseId) ??
+      safeString(topLevel.tool_use_id) ??
+      safeString(topLevel.call_id) ??
+      safeString(topLevel.id);
+    const topLevelToolName =
+      safeString(topLevel.toolName) ??
+      safeString(topLevel.tool_name);
+    const topLevelIsError =
+      safeBoolean(topLevel.isError) ??
+      safeBoolean(topLevel.is_error);
 
     for (const item of params.message.content) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
@@ -1424,17 +1441,22 @@ export class LcmContextEngine implements ContextEngine {
 
       const record = item as Record<string, unknown>;
       const rawType = safeString(record.type);
-      if (
+      const isStructuredToolResult =
         rawType !== "tool_result" &&
         rawType !== "toolResult" &&
-        rawType !== "function_call_output"
-      ) {
+        rawType !== "function_call_output";
+      const isPlainTextToolResult =
+        rawType === "text" &&
+        typeof record.text === "string";
+      if (isStructuredToolResult && !isPlainTextToolResult) {
         rewrittenContent.push(item);
         continue;
       }
 
       const textSource =
-        record.output !== undefined
+        isPlainTextToolResult
+          ? record.text
+          : record.output !== undefined
           ? record.output
           : record.content !== undefined
             ? record.content
@@ -1448,7 +1470,7 @@ export class LcmContextEngine implements ContextEngine {
       interceptedAny = true;
       const toolName =
         safeString(record.name) ??
-        safeString((params.message as Record<string, unknown>).toolName) ??
+        topLevelToolName ??
         "tool-result";
       const externalized = await this.externalizeLargeTextPayload({
         conversationId: params.conversationId,
@@ -1464,8 +1486,10 @@ export class LcmContextEngine implements ContextEngine {
           }),
       });
 
+      const normalizedRawType =
+        rawType === "function_call_output" ? "function_call_output" : "tool_result";
       const compactBlock: Record<string, unknown> = {
-        type: rawType,
+        type: normalizedRawType,
         output: externalized.reference,
         externalizedFileId: externalized.fileId,
         originalByteSize: externalized.byteSize,
@@ -1475,9 +1499,13 @@ export class LcmContextEngine implements ContextEngine {
       const callId =
         safeString(record.tool_use_id) ??
         safeString(record.toolUseId) ??
-        safeString(record.call_id);
+        safeString(record.tool_call_id) ??
+        safeString(record.toolCallId) ??
+        safeString(record.call_id) ??
+        safeString(record.id) ??
+        topLevelToolCallId;
       if (callId) {
-        if (rawType === "function_call_output") {
+        if (normalizedRawType === "function_call_output") {
           compactBlock.call_id = callId;
         } else {
           compactBlock.tool_use_id = callId;
@@ -1485,9 +1513,10 @@ export class LcmContextEngine implements ContextEngine {
       }
       if (typeof record.is_error === "boolean") {
         compactBlock.is_error = record.is_error;
-      }
-      if (typeof record.isError === "boolean") {
+      } else if (typeof record.isError === "boolean") {
         compactBlock.isError = record.isError;
+      } else if (typeof topLevelIsError === "boolean") {
+        compactBlock.isError = topLevelIsError;
       }
       if (toolName) {
         compactBlock.name = toolName;

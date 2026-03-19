@@ -1066,6 +1066,100 @@ describe("LcmContextEngine.ingest content extraction", () => {
     });
   });
 
+  it("externalizes oversized plain-text tool-result blocks from live exec-style messages", async () => {
+    await withTempHome(async () => {
+      const engine = createEngineWithConfig({ largeFileTokenThreshold: 20 });
+      const sessionId = randomUUID();
+      const toolOutput = `${"minified js chunk\n".repeat(160)}done`;
+
+      await engine.ingest({
+        sessionId,
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id: "call_live_exec",
+              name: "exec",
+              input: { cmd: "head -c 200000 viewer-runtime.js" },
+            },
+          ],
+        } as AgentMessage,
+      });
+
+      await engine.ingest({
+        sessionId,
+        message: {
+          role: "toolResult",
+          toolCallId: "call_live_exec",
+          toolName: "exec",
+          isError: false,
+          content: [
+            {
+              type: "text",
+              text: toolOutput,
+            },
+          ],
+        } as AgentMessage,
+      });
+
+      const conversation = await engine
+        .getConversationStore()
+        .getConversationBySessionId(sessionId);
+      expect(conversation).not.toBeNull();
+
+      const storedMessages = await engine
+        .getConversationStore()
+        .getMessages(conversation!.conversationId);
+      expect(storedMessages).toHaveLength(2);
+      expect(storedMessages[1].content).toContain("[LCM Tool Output: file_");
+      expect(storedMessages[1].content).toContain("tool=exec");
+      expect(storedMessages[1].content).not.toContain(toolOutput.slice(0, 64));
+
+      const fileIdMatch = storedMessages[1].content.match(/file_[a-f0-9]{16}/);
+      expect(fileIdMatch).not.toBeNull();
+      const fileId = fileIdMatch![0];
+
+      const storedFile = await engine.getSummaryStore().getLargeFile(fileId);
+      expect(storedFile).not.toBeNull();
+      expect(storedFile!.fileName).toBe("exec.txt");
+      expect(readFileSync(storedFile!.storageUri, "utf8")).toBe(toolOutput);
+
+      const parts = await engine.getConversationStore().getMessageParts(storedMessages[1].messageId);
+      expect(parts).toHaveLength(1);
+      expect(parts[0].partType).toBe("tool");
+      expect(parts[0].toolCallId).toBe("call_live_exec");
+      expect(parts[0].toolName).toBe("exec");
+      const metadata = JSON.parse(parts[0].metadata ?? "{}") as Record<string, unknown>;
+      expect(metadata).toMatchObject({
+        originalRole: "toolResult",
+        rawType: "tool_result",
+        externalizedFileId: fileId,
+        originalByteSize: Buffer.byteLength(toolOutput, "utf8"),
+        toolOutputExternalized: true,
+        externalizationReason: "large_tool_result",
+      });
+
+      const assembler = new ContextAssembler(engine.getConversationStore(), engine.getSummaryStore());
+      const assembled = await assembler.assemble({
+        conversationId: conversation!.conversationId,
+        tokenBudget: 10_000,
+      });
+      expect(assembled.messages).toHaveLength(2);
+      const assembledToolResult = assembled.messages[1] as {
+        role: string;
+        toolCallId?: string;
+        toolName?: string;
+        content?: Array<{ output?: unknown }>;
+      };
+      expect(assembledToolResult.role).toBe("toolResult");
+      expect(assembledToolResult.toolCallId).toBe("call_live_exec");
+      expect(assembledToolResult.toolName).toBe("exec");
+      expect(typeof assembledToolResult.content?.[0]?.output).toBe("string");
+      expect(String(assembledToolResult.content?.[0]?.output)).toContain(fileId);
+    });
+  });
+
   it("serializes recycled session writes by stable sessionKey", async () => {
     const engine = createEngine();
     const sessionKey = "agent:main:main";
