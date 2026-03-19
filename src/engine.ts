@@ -1324,6 +1324,9 @@ export class LcmContextEngine implements ContextEngine {
       };
     }
     this.ensureMigrated();
+    const sessionFileStats = statSync(params.sessionFile);
+    const sessionFileSize = sessionFileStats.size;
+    const sessionFileMtimeMs = Math.trunc(sessionFileStats.mtimeMs);
 
     const result = await this.withSessionQueue(
       this.resolveSessionQueueKey(params.sessionId, params.sessionKey),
@@ -1333,7 +1336,6 @@ export class LcmContextEngine implements ContextEngine {
             conversationId: number,
             historicalMessages: AgentMessage[],
           ): Promise<void> => {
-            const sessionFileStats = statSync(params.sessionFile);
             const lastMessage =
               historicalMessages.length > 0
                 ? toStoredMessage(historicalMessages[historicalMessages.length - 1]!)
@@ -1341,9 +1343,9 @@ export class LcmContextEngine implements ContextEngine {
             await this.summaryStore.upsertConversationBootstrapState({
               conversationId,
               sessionFilePath: params.sessionFile,
-              lastSeenSize: sessionFileStats.size,
-              lastSeenMtimeMs: Math.trunc(sessionFileStats.mtimeMs),
-              lastProcessedOffset: sessionFileStats.size,
+              lastSeenSize: sessionFileSize,
+              lastSeenMtimeMs: sessionFileMtimeMs,
+              lastProcessedOffset: sessionFileSize,
               lastProcessedEntryHash: createBootstrapEntryHash(lastMessage),
             });
           };
@@ -1352,11 +1354,34 @@ export class LcmContextEngine implements ContextEngine {
             sessionKey: params.sessionKey,
           });
           const conversationId = conversation.conversationId;
+          const existingCount = await this.conversationStore.getMessageCount(conversationId);
+          const bootstrapState =
+            existingCount > 0
+              ? await this.summaryStore.getConversationBootstrapState(conversationId)
+              : null;
+
+          // If the transcript file is byte-for-byte unchanged from the last
+          // successful bootstrap checkpoint, skip reopening and reparsing it.
+          if (
+            bootstrapState &&
+            bootstrapState.sessionFilePath === params.sessionFile &&
+            bootstrapState.lastSeenSize === sessionFileSize &&
+            bootstrapState.lastSeenMtimeMs === sessionFileMtimeMs
+          ) {
+            if (!conversation.bootstrappedAt) {
+              await this.conversationStore.markConversationBootstrapped(conversationId);
+            }
+            return {
+              bootstrapped: false,
+              importedMessages: 0,
+              reason: conversation.bootstrappedAt ? "already bootstrapped" : "conversation already up to date",
+            };
+          }
+
           const historicalMessages = readLeafPathMessages(params.sessionFile);
 
           // First-time import path: no LCM rows yet, so seed directly from the
           // active leaf context snapshot.
-          const existingCount = await this.conversationStore.getMessageCount(conversationId);
           if (existingCount === 0) {
             if (historicalMessages.length === 0) {
               await this.conversationStore.markConversationBootstrapped(conversationId);

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
@@ -186,6 +186,13 @@ function makeMessage(params: { role?: string; content: unknown }): AgentMessage 
     content: params.content,
     timestamp: Date.now(),
   } as AgentMessage;
+}
+
+function corruptSessionFilePreservingObservedStats(sessionFile: string): void {
+  const originalStats = statSync(sessionFile);
+  writeFileSync(sessionFile, "x".repeat(originalStats.size));
+  const restoredMtime = new Date(originalStats.mtimeMs);
+  utimesSync(sessionFile, restoredMtime, restoredMtime);
 }
 
 function estimateAssembledPayloadTokens(messages: AgentMessage[]): number {
@@ -1136,6 +1143,78 @@ describe("LcmContextEngine.bootstrap", () => {
     expect(await engine.getConversationStore().getMessageCount(conversation!.conversationId)).toBe(
       2,
     );
+  });
+
+  it("skips reopening the transcript when checkpoint stats match", async () => {
+    const sessionFile = createSessionFilePath("unchanged-fast-path");
+    const sm = SessionManager.open(sessionFile);
+    sm.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "first" }],
+    } as AgentMessage);
+    sm.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "second" }],
+    } as AgentMessage);
+
+    const engine = createEngine();
+    const sessionId = "bootstrap-unchanged-fast-path";
+
+    const first = await engine.bootstrap({ sessionId, sessionFile });
+    expect(first.bootstrapped).toBe(true);
+    expect(first.importedMessages).toBe(2);
+
+    corruptSessionFilePreservingObservedStats(sessionFile);
+
+    const second = await engine.bootstrap({ sessionId, sessionFile });
+    expect(second.bootstrapped).toBe(false);
+    expect(second.importedMessages).toBe(0);
+    expect(second.reason).toBe("already bootstrapped");
+  });
+
+  it("preserves ordinary bootstrap behavior when no checkpoint exists", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "lossless-claw-engine-"));
+    tempDirs.push(tempDir);
+    const dbPath = join(tempDir, "lcm.db");
+    const sessionFile = createSessionFilePath("missing-checkpoint");
+    const sm = SessionManager.open(sessionFile);
+    sm.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "first" }],
+    } as AgentMessage);
+    sm.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "second" }],
+    } as AgentMessage);
+
+    const engine = createEngineAtDatabasePath(dbPath);
+    const sessionId = "bootstrap-missing-checkpoint";
+
+    const first = await engine.bootstrap({ sessionId, sessionFile });
+    expect(first.bootstrapped).toBe(true);
+
+    const conversation = await engine.getConversationStore().getConversationBySessionId(sessionId);
+    expect(conversation).not.toBeNull();
+
+    const rawDb = createLcmDatabaseConnection(dbPath);
+    try {
+      rawDb
+        .prepare(`DELETE FROM conversation_bootstrap_state WHERE conversation_id = ?`)
+        .run(conversation!.conversationId);
+      rawDb
+        .prepare(`UPDATE conversations SET bootstrapped_at = NULL WHERE conversation_id = ?`)
+        .run(conversation!.conversationId);
+    } finally {
+      closeLcmConnection(rawDb);
+    }
+
+    corruptSessionFilePreservingObservedStats(sessionFile);
+
+    await expect(engine.bootstrap({ sessionId, sessionFile })).resolves.toEqual({
+      bootstrapped: false,
+      importedMessages: 0,
+      reason: "conversation already has messages",
+    });
   });
 
   it("reconciles missing tail messages when JSONL advanced past LCM", async () => {
