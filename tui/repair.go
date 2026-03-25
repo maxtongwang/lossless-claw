@@ -1024,9 +1024,11 @@ func summarizeViaCLI(ctx context.Context, model, prompt string, targetTokens int
 	cmd := execCLICommand(ctx, claudePath,
 		"--print",
 		"--output-format", "text",
+		"--system-prompt", "You are a summarization engine. Output ONLY the requested summary. No preamble, no conversation, no questions, no commentary. Never output HEARTBEAT_OK or any protocol tokens.",
 		"--model", model,
 		"-p", prompt,
 	)
+	cmd.Dir = os.TempDir()
 	// Unset ANTHROPIC_API_KEY so the CLI uses its own stored OAuth credentials.
 	env := os.Environ()
 	filtered := env[:0]
