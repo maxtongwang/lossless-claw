@@ -30,51 +30,111 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Latest upstream tag: $TAG"
 
-      - name: Check if already merged
+      - name: Check if already synced
         id: check
         run: |
           TAG="${{ steps.latest.outputs.tag }}"
           if git merge-base --is-ancestor "$TAG" HEAD 2>/dev/null; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Already up to date with $TAG"
+            echo "Already synced to $TAG"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "New release: $TAG"
+            echo "New release available: $TAG"
           fi
 
-      - name: Create sync branch and merge
+      # Flow: start from upstream's clean release, cherry-pick our fork changes on top.
+      # This keeps upstream as the base — our changes are always a thin layer.
+      #
+      # 1. Create branch from upstream tag (clean upstream state)
+      # 2. Cherry-pick our fork-only commits on top
+      # 3. Push branch, open PR against fork main
+      # 4. PR review: verify DI constructor, no openclaw/plugin-sdk imports
+      # 5. Merge PR → fork main = upstream release + our changes
+
+      - name: Create sync branch from upstream tag
         if: steps.check.outputs.skip == 'false'
+        id: sync
         run: |
           TAG="${{ steps.latest.outputs.tag }}"
           BRANCH="sync/upstream-${TAG}"
-          git checkout -b "$BRANCH"
-          git merge "$TAG" --no-edit || {
-            echo "::warning::Merge conflict — manual resolution needed"
-            git merge --abort
+
+          # Start from upstream's clean release
+          git checkout -b "$BRANCH" "$TAG"
+
+          # Find our fork-only commits (not in upstream)
+          # These are commits on origin/main that are not ancestors of the upstream tag
+          FORK_COMMITS=$(git log --reverse --format="%H" "$TAG"..origin/main -- \
+            src/context-engine-types.ts \
+            src/store/types.ts \
+            src/store/index.ts \
+            src/store/conversation-store.ts \
+            src/engine.ts \
+            src/assembler.ts \
+            src/openclaw-bridge.ts \
+            src/tools/common.ts \
+            src/plugin/index.ts \
+            src/db/config.ts \
+            .github/workflows/sync-upstream.yml)
+
+          if [ -z "$FORK_COMMITS" ]; then
+            # Fallback: cherry-pick all commits after the last upstream merge point
+            FORK_COMMITS=$(git log --reverse --format="%H" "$TAG"..origin/main)
+          fi
+
+          echo "Cherry-picking fork commits onto upstream $TAG:"
+          CONFLICT="false"
+          for COMMIT in $FORK_COMMITS; do
+            MSG=$(git log --format="%s" -1 "$COMMIT")
+            echo "  - $MSG ($COMMIT)"
+            if ! git cherry-pick "$COMMIT" --no-edit 2>/dev/null; then
+              echo "::warning::Conflict cherry-picking: $MSG"
+              git cherry-pick --abort 2>/dev/null || true
+              CONFLICT="true"
+              break
+            fi
+          done
+
+          echo "conflict=$CONFLICT" >> "$GITHUB_OUTPUT"
+
+          if [ "$CONFLICT" = "true" ]; then
+            echo "::error::Cherry-pick conflict — manual resolution needed"
+            echo "Manual steps:"
+            echo "  git checkout -b sync/upstream-$TAG $TAG"
+            echo "  git cherry-pick <our-commits> (resolve conflicts)"
+            echo "  git push origin sync/upstream-$TAG"
             exit 1
-          }
+          fi
+
           git push origin "$BRANCH"
 
       - name: Create PR
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' && steps.sync.outputs.conflict == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.latest.outputs.tag }}"
           BRANCH="sync/upstream-${TAG}"
           gh pr create \
-            --title "sync: merge upstream ${TAG}" \
-            --body "$(cat <<EOF
+            --title "sync: rebase fork onto upstream ${TAG}" \
+            --body "$(cat <<'EOF'
           ## Upstream Sync
 
-          Merges upstream release \`${TAG}\` from \`Martian-Engineering/lossless-claw\`.
+          Rebases our fork changes onto upstream release `${{ steps.latest.outputs.tag }}`.
+
+          **Flow:** upstream tag (clean) → cherry-pick our DI/type changes on top.
+
+          **Our fork changes (thin layer):**
+          - `src/context-engine-types.ts` — inlined openclaw/plugin-sdk types
+          - `src/store/types.ts` — IConversationStore + ISummaryStore interfaces
+          - `src/engine.ts` — DI constructor for custom stores
+          - `src/assembler.ts`, `src/openclaw-bridge.ts`, `src/tools/common.ts`, `src/plugin/index.ts` — decoupled imports
+          - `src/db/config.ts` — duplicate field fix
+          - `src/store/conversation-store.ts` — type predicate fix
 
           **Review checklist:**
-          - [ ] \`src/engine.ts\` constructor DI still works
-          - [ ] No new \`openclaw/plugin-sdk\` imports added
-          - [ ] \`npm test\` passes
-
-          Auto-generated by sync-upstream workflow.
+          - [ ] `src/engine.ts` DI constructor still works after upstream changes
+          - [ ] No new `openclaw/plugin-sdk` imports re-introduced
+          - [ ] Our inlined types match upstream's current interface
           EOF
           )" \
             --base main \
