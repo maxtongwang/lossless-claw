@@ -1,7 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { sanitizeFts5Query } from "./fts5-sanitize.js";
-import { buildLikeSearchPlan, containsCjk, createFallbackSnippet } from "./full-text-fallback.js";
+import {
+  buildLikeSearchPlan,
+  containsCjk,
+  createFallbackSnippet,
+} from "./full-text-fallback.js";
 
 export type ConversationId = number;
 export type MessageId = number;
@@ -205,7 +209,9 @@ function toMessagePartRecord(row: MessagePartRow): MessagePartRecord {
   };
 }
 
-function normalizeMessageContentForFullTextIndex(content: string): string | null {
+function normalizeMessageContentForFullTextIndex(
+  content: string,
+): string | null {
   const trimmed = content.trim();
   if (!trimmed) {
     return null;
@@ -242,7 +248,9 @@ function normalizeMessageContentForFullTextIndex(content: string): string | null
     }
   }
 
-  const normalized = [header, ...summaryLines].filter((line) => line.length > 0).join("\n");
+  const normalized = [header, ...summaryLines]
+    .filter((line) => line.length > 0)
+    .join("\n");
   return normalized || null;
 }
 
@@ -274,9 +282,13 @@ export class ConversationStore {
 
   // ── Conversation operations ───────────────────────────────────────────────
 
-  async createConversation(input: CreateConversationInput): Promise<ConversationRecord> {
+  async createConversation(
+    input: CreateConversationInput,
+  ): Promise<ConversationRecord> {
     const result = this.db
-      .prepare(`INSERT INTO conversations (session_id, session_key, title) VALUES (?, ?, ?)`)
+      .prepare(
+        `INSERT INTO conversations (session_id, session_key, title) VALUES (?, ?, ?)`,
+      )
       .run(input.sessionId, input.sessionKey ?? null, input.title ?? null);
 
     const row = this.db
@@ -289,7 +301,9 @@ export class ConversationStore {
     return toConversationRecord(row);
   }
 
-  async getConversation(conversationId: ConversationId): Promise<ConversationRecord | null> {
+  async getConversation(
+    conversationId: ConversationId,
+  ): Promise<ConversationRecord | null> {
     const row = this.db
       .prepare(
         `SELECT conversation_id, session_id, session_key, title, bootstrapped_at, created_at, updated_at
@@ -300,7 +314,9 @@ export class ConversationStore {
     return row ? toConversationRecord(row) : null;
   }
 
-  async getConversationBySessionId(sessionId: string): Promise<ConversationRecord | null> {
+  async getConversationBySessionId(
+    sessionId: string,
+  ): Promise<ConversationRecord | null> {
     const row = this.db
       .prepare(
         `SELECT conversation_id, session_id, session_key, title, bootstrapped_at, created_at, updated_at
@@ -314,7 +330,9 @@ export class ConversationStore {
     return row ? toConversationRecord(row) : null;
   }
 
-  async getConversationBySessionKey(sessionKey: string): Promise<ConversationRecord | null> {
+  async getConversationBySessionKey(
+    sessionKey: string,
+  ): Promise<ConversationRecord | null> {
     const row = this.db
       .prepare(
         `SELECT conversation_id, session_id, session_key, title, bootstrapped_at, created_at, updated_at
@@ -334,7 +352,8 @@ export class ConversationStore {
   }): Promise<ConversationRecord | null> {
     const normalizedSessionKey = input.sessionKey?.trim();
     if (normalizedSessionKey) {
-      const byKey = await this.getConversationBySessionKey(normalizedSessionKey);
+      const byKey =
+        await this.getConversationBySessionKey(normalizedSessionKey);
       if (byKey) {
         return byKey;
       }
@@ -352,7 +371,10 @@ export class ConversationStore {
     sessionId: string,
     titleOrOpts?: string | { title?: string; sessionKey?: string },
   ): Promise<ConversationRecord> {
-    const opts = typeof titleOrOpts === "string" ? { title: titleOrOpts } : titleOrOpts ?? {};
+    const opts =
+      typeof titleOrOpts === "string"
+        ? { title: titleOrOpts }
+        : (titleOrOpts ?? {});
     if (opts.sessionKey) {
       const byKey = await this.getConversationBySessionKey(opts.sessionKey);
       if (byKey) {
@@ -381,10 +403,16 @@ export class ConversationStore {
       return existing;
     }
 
-    return this.createConversation({ sessionId, title: opts.title, sessionKey: opts.sessionKey });
+    return this.createConversation({
+      sessionId,
+      title: opts.title,
+      sessionKey: opts.sessionKey,
+    });
   }
 
-  async markConversationBootstrapped(conversationId: ConversationId): Promise<void> {
+  async markConversationBootstrapped(
+    conversationId: ConversationId,
+  ): Promise<void> {
     this.db
       .prepare(
         `UPDATE conversations
@@ -403,7 +431,13 @@ export class ConversationStore {
         `INSERT INTO messages (conversation_id, seq, role, content, token_count)
        VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(input.conversationId, input.seq, input.role, input.content, input.tokenCount);
+      .run(
+        input.conversationId,
+        input.seq,
+        input.role,
+        input.content,
+        input.tokenCount,
+      );
 
     const messageId = Number(result.lastInsertRowid);
 
@@ -419,7 +453,9 @@ export class ConversationStore {
     return toMessageRecord(row);
   }
 
-  async createMessagesBulk(inputs: CreateMessageInput[]): Promise<MessageRecord[]> {
+  async createMessagesBulk(
+    inputs: CreateMessageInput[],
+  ): Promise<MessageRecord[]> {
     if (inputs.length === 0) {
       return [];
     }
@@ -482,7 +518,9 @@ export class ConversationStore {
     return rows.map(toMessageRecord);
   }
 
-  async getLastMessage(conversationId: ConversationId): Promise<MessageRecord | null> {
+  async getLastMessage(
+    conversationId: ConversationId,
+  ): Promise<MessageRecord | null> {
     const row = this.db
       .prepare(
         `SELECT message_id, conversation_id, seq, role, content, token_count, created_at
@@ -539,7 +577,10 @@ export class ConversationStore {
     return row ? toMessageRecord(row) : null;
   }
 
-  async createMessageParts(messageId: MessageId, parts: CreateMessagePartInput[]): Promise<void> {
+  async createMessageParts(
+    messageId: MessageId,
+    parts: CreateMessagePartInput[],
+  ): Promise<void> {
     if (parts.length === 0) {
       return;
     }
@@ -603,7 +644,9 @@ export class ConversationStore {
 
   async getMessageCount(conversationId: ConversationId): Promise<number> {
     const row = this.db
-      .prepare(`SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?`)
+      .prepare(
+        `SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?`,
+      )
       .get(conversationId) as unknown as CountRow;
     return row?.count ?? 0;
   }
@@ -635,7 +678,9 @@ export class ConversationStore {
     for (const messageId of messageIds) {
       // Skip if referenced by a summary (ON DELETE RESTRICT would fail anyway)
       const refRow = this.db
-        .prepare(`SELECT 1 AS found FROM summary_messages WHERE message_id = ? LIMIT 1`)
+        .prepare(
+          `SELECT 1 AS found FROM summary_messages WHERE message_id = ? LIMIT 1`,
+        )
         .get(messageId) as unknown as { found: number } | undefined;
       if (refRow) {
         continue;
@@ -643,13 +688,17 @@ export class ConversationStore {
 
       // Remove from context_items first (RESTRICT constraint)
       this.db
-        .prepare(`DELETE FROM context_items WHERE item_type = 'message' AND message_id = ?`)
+        .prepare(
+          `DELETE FROM context_items WHERE item_type = 'message' AND message_id = ?`,
+        )
         .run(messageId);
 
       this.deleteMessageFromFullText(messageId);
 
       // Delete the message (message_parts cascade via ON DELETE CASCADE)
-      this.db.prepare(`DELETE FROM messages WHERE message_id = ?`).run(messageId);
+      this.db
+        .prepare(`DELETE FROM messages WHERE message_id = ?`)
+        .run(messageId);
 
       deleted += 1;
     }
@@ -659,7 +708,9 @@ export class ConversationStore {
 
   // ── Search ────────────────────────────────────────────────────────────────
 
-  async searchMessages(input: MessageSearchInput): Promise<MessageSearchResult[]> {
+  async searchMessages(
+    input: MessageSearchInput,
+  ): Promise<MessageSearchResult[]> {
     const limit = input.limit ?? 50;
 
     if (input.mode === "full_text") {
@@ -693,9 +744,21 @@ export class ConversationStore {
           );
         }
       }
-      return this.searchLike(input.query, limit, input.conversationId, input.since, input.before);
+      return this.searchLike(
+        input.query,
+        limit,
+        input.conversationId,
+        input.since,
+        input.before,
+      );
     }
-    return this.searchRegex(input.query, limit, input.conversationId, input.since, input.before);
+    return this.searchRegex(
+      input.query,
+      limit,
+      input.conversationId,
+      input.since,
+      input.before,
+    );
   }
 
   private indexMessageForFullText(messageId: MessageId, content: string): void {
@@ -720,7 +783,9 @@ export class ConversationStore {
       return;
     }
     try {
-      this.db.prepare(`DELETE FROM messages_fts WHERE rowid = ?`).run(messageId);
+      this.db
+        .prepare(`DELETE FROM messages_fts WHERE rowid = ?`)
+        .run(messageId);
     } catch {
       // Ignore FTS cleanup failures; the source row deletion is authoritative.
     }
@@ -761,7 +826,9 @@ export class ConversationStore {
        WHERE ${where.join(" AND ")}
        ORDER BY m.created_at DESC
        LIMIT ?`;
-    const rows = this.db.prepare(sql).all(...args) as unknown as MessageSearchRow[];
+    const rows = this.db
+      .prepare(sql)
+      .all(...args) as unknown as MessageSearchRow[];
     return rows.map(toSearchResult);
   }
 
@@ -806,9 +873,12 @@ export class ConversationStore {
 
     return rows
       .map((row) => {
-        const normalizedContent = normalizeMessageContentForFullTextIndex(row.content) ?? row.content;
+        const normalizedContent =
+          normalizeMessageContentForFullTextIndex(row.content) ?? row.content;
         const haystack = normalizedContent.toLowerCase();
-        const matchesAllTerms = plan.terms.every((term) => haystack.includes(term));
+        const matchesAllTerms = plan.terms.every((term) =>
+          haystack.includes(term),
+        );
         if (!matchesAllTerms) {
           return null;
         }
@@ -821,7 +891,9 @@ export class ConversationStore {
           rank: 0,
         };
       })
-      .filter((row): row is MessageSearchResult => row !== null);
+      .filter(
+        (row): row is NonNullable<typeof row> => row !== null,
+      ) as MessageSearchResult[];
   }
 
   private searchRegex(
