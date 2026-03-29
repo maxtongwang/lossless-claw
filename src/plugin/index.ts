@@ -6,7 +6,23 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+// OpenClawPluginApi — minimal shape for plugin registration.
+// Inlined to decouple from openclaw/plugin-sdk.
+type OpenClawPluginApi = {
+  id: string;
+  config: Record<string, unknown>;
+  pluginConfig?: Record<string, unknown>;
+  logger: {
+    info: (msg: string) => void;
+    warn: (msg: string) => void;
+    error: (msg: string) => void;
+    debug: (msg: string) => void;
+  };
+  registerTool: (tool: unknown, opts?: unknown) => void;
+  registerContextEngine: (id: string, factory: unknown) => void;
+  resolvePath: (input: string) => string;
+  [key: string]: unknown;
+};
 import { resolveLcmConfig } from "../db/config.js";
 import { createLcmDatabaseConnection } from "../db/connection.js";
 import { LcmContextEngine } from "../engine.js";
@@ -18,7 +34,9 @@ import { createLcmGrepTool } from "../tools/lcm-grep-tool.js";
 import type { LcmDependencies } from "../types.js";
 
 /** Parse `agent:<agentId>:<suffix...>` session keys. */
-function parseAgentSessionKey(sessionKey: string): { agentId: string; suffix: string } | null {
+function parseAgentSessionKey(
+  sessionKey: string,
+): { agentId: string; suffix: string } | null {
   const value = sessionKey.trim();
   if (!value.startsWith("agent:")) {
     return null;
@@ -103,7 +121,14 @@ const MODEL_AUTH_REQUIRED_RELEASE = "the first OpenClaw release after 2026.3.8";
 const AUTH_ERROR_TEXT_PATTERN =
   /\b401\b|unauthorized|unauthorised|invalid[_ -]?token|invalid[_ -]?api[_ -]?key|authentication failed|authorization failed|missing scope|insufficient scope|model\.request\b/i;
 const AUTH_ERROR_STATUS_KEYS = ["status", "statusCode", "status_code"] as const;
-const AUTH_ERROR_NESTED_KEYS = ["error", "response", "cause", "details", "data", "body"] as const;
+const AUTH_ERROR_NESTED_KEYS = [
+  "error",
+  "response",
+  "cause",
+  "details",
+  "data",
+  "body",
+] as const;
 
 type CompletionBridgeErrorInfo = {
   kind: "provider_auth";
@@ -113,7 +138,9 @@ type CompletionBridgeErrorInfo = {
 };
 
 /** Capture plugin env values once during initialization. */
-function snapshotPluginEnv(env: NodeJS.ProcessEnv = process.env): PluginEnvSnapshot {
+function snapshotPluginEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): PluginEnvSnapshot {
   return {
     lcmSummaryModel: env.LCM_SUMMARY_MODEL?.trim() ?? "",
     lcmSummaryProvider: env.LCM_SUMMARY_PROVIDER?.trim() ?? "",
@@ -121,13 +148,16 @@ function snapshotPluginEnv(env: NodeJS.ProcessEnv = process.env): PluginEnvSnaps
     pluginSummaryProvider: "",
     openclawProvider: env.OPENCLAW_PROVIDER?.trim() ?? "",
     openclawDefaultModel: "",
-    agentDir: env.OPENCLAW_AGENT_DIR?.trim() || env.PI_CODING_AGENT_DIR?.trim() || "",
+    agentDir:
+      env.OPENCLAW_AGENT_DIR?.trim() || env.PI_CODING_AGENT_DIR?.trim() || "",
     home: env.HOME?.trim() ?? "",
   };
 }
 
 function truncateErrorMessage(message: string, maxChars = 240): string {
-  return message.length <= maxChars ? message : `${message.slice(0, maxChars)}...`;
+  return message.length <= maxChars
+    ? message
+    : `${message.slice(0, maxChars)}...`;
 }
 
 function collectErrorText(value: unknown, out: string[], depth = 0): void {
@@ -185,7 +215,9 @@ function extractErrorStatusCode(value: unknown, depth = 0): number | undefined {
   return undefined;
 }
 
-function detectProviderAuthError(error: unknown): CompletionBridgeErrorInfo | undefined {
+function detectProviderAuthError(
+  error: unknown,
+): CompletionBridgeErrorInfo | undefined {
   const statusCode = extractErrorStatusCode(error);
   const textParts: string[] = [];
   collectErrorText(error, textParts);
@@ -209,7 +241,9 @@ function detectProviderAuthError(error: unknown): CompletionBridgeErrorInfo | un
     kind: "provider_auth",
     ...(statusCode !== undefined ? { statusCode } : {}),
     ...(directCode ? { code: directCode } : {}),
-    ...(normalizedMessage ? { message: truncateErrorMessage(normalizedMessage) } : {}),
+    ...(normalizedMessage
+      ? { message: truncateErrorMessage(normalizedMessage) }
+      : {}),
   };
 }
 
@@ -219,7 +253,8 @@ function readDefaultModelFromConfig(config: unknown): string {
     return "";
   }
 
-  const model = (config as { agents?: { defaults?: { model?: unknown } } }).agents?.defaults?.model;
+  const model = (config as { agents?: { defaults?: { model?: unknown } } })
+    .agents?.defaults?.model;
   if (typeof model === "string") {
     return model.trim();
   }
@@ -229,7 +264,10 @@ function readDefaultModelFromConfig(config: unknown): string {
 }
 
 /** Format a provider/model pair for logs. */
-function formatProviderModel(params: { provider: string; model: string }): string {
+function formatProviderModel(params: {
+  provider: string;
+  model: string;
+}): string {
   return `${params.provider}/${params.model}`;
 }
 
@@ -239,7 +277,9 @@ function buildCompactionModelLog(params: {
   defaultModelRef: string;
   defaultProvider: string;
 }): string {
-  const usingOverride = Boolean(params.config.summaryModel || params.config.summaryProvider);
+  const usingOverride = Boolean(
+    params.config.summaryModel || params.config.summaryProvider,
+  );
   const raw = (params.config.summaryModel || params.defaultModelRef).trim();
   if (!raw) {
     return "[lcm] Compaction summarization model: (unconfigured)";
@@ -256,7 +296,11 @@ function buildCompactionModelLog(params: {
     }
   }
 
-  const provider = (params.config.summaryProvider || params.defaultProvider || "openai").trim();
+  const provider = (
+    params.config.summaryProvider ||
+    params.defaultProvider ||
+    "openai"
+  ).trim();
   return `[lcm] Compaction summarization model: ${formatProviderModel({
     provider,
     model: raw,
@@ -264,7 +308,10 @@ function buildCompactionModelLog(params: {
 }
 
 /** Resolve common provider API keys from environment. */
-function resolveApiKey(provider: string, readEnv: ReadEnvFn): string | undefined {
+function resolveApiKey(
+  provider: string,
+  readEnv: ReadEnvFn,
+): string | undefined {
   const keyMap: Record<string, string[]> = {
     openai: ["OPENAI_API_KEY"],
     anthropic: ["ANTHROPIC_API_KEY"],
@@ -305,8 +352,21 @@ type SecretProviderConfig = {
 };
 
 type AuthProfileCredential =
-  | { type: "api_key"; provider: string; key?: string; keyRef?: SecretRef; email?: string }
-  | { type: "token"; provider: string; token?: string; tokenRef?: SecretRef; expires?: number; email?: string }
+  | {
+      type: "api_key";
+      provider: string;
+      key?: string;
+      keyRef?: SecretRef;
+      email?: string;
+    }
+  | {
+      type: "token";
+      provider: string;
+      token?: string;
+      tokenRef?: SecretRef;
+      expires?: number;
+      email?: string;
+    }
   | ({
       type: "oauth";
       provider: string;
@@ -356,7 +416,11 @@ type PiAiModule = {
       temperature?: number;
       reasoning?: string;
     },
-  ) => Promise<Record<string, unknown> & { content?: Array<{ type: string; text?: string }> }>;
+  ) => Promise<
+    Record<string, unknown> & {
+      content?: Array<{ type: string; text?: string }>;
+    }
+  >;
   getModel?: (provider: string, modelId: string) => unknown;
   getModels?: (provider: string) => unknown[];
   getEnvApiKey?: (provider: string) => string | undefined;
@@ -454,8 +518,9 @@ function resolveProviderApiFromRuntimeConfig(
   if (!isRecord(runtimeConfig)) {
     return undefined;
   }
-  const providers = (runtimeConfig as { models?: { providers?: Record<string, unknown> } }).models
-    ?.providers;
+  const providers = (
+    runtimeConfig as { models?: { providers?: Record<string, unknown> } }
+  ).models?.providers;
   if (!providers || !isRecord(providers)) {
     return undefined;
   }
@@ -468,7 +533,9 @@ function resolveProviderApiFromRuntimeConfig(
 }
 
 /** Resolve runtime.modelAuth from plugin runtime when available. */
-function getRuntimeModelAuth(api: OpenClawPluginApi): RuntimeModelAuth | undefined {
+function getRuntimeModelAuth(
+  api: OpenClawPluginApi,
+): RuntimeModelAuth | undefined {
   const runtime = api.runtime as OpenClawPluginApi["runtime"] & {
     modelAuth?: RuntimeModelAuth;
   };
@@ -500,7 +567,9 @@ function buildModelAuthLookupModel(params: {
 }
 
 /** Normalize an auth result down to the API key that pi-ai expects. */
-function resolveApiKeyFromAuthResult(auth: RuntimeModelAuthResult | undefined): string | undefined {
+function resolveApiKeyFromAuthResult(
+  auth: RuntimeModelAuthResult | undefined,
+): string | undefined {
   const apiKey = auth?.apiKey?.trim();
   return apiKey ? apiKey : undefined;
 }
@@ -528,8 +597,12 @@ function parseAuthProfileStore(raw: string): AuthProfileStore | undefined {
         continue;
       }
       const type = value.type;
-      const provider = typeof value.provider === "string" ? value.provider.trim() : "";
-      if (!provider || (type !== "api_key" && type !== "token" && type !== "oauth")) {
+      const provider =
+        typeof value.provider === "string" ? value.provider.trim() : "";
+      if (
+        !provider ||
+        (type !== "api_key" && type !== "token" && type !== "oauth")
+      ) {
         continue;
       }
       profiles[profileId] = value as AuthProfileCredential;
@@ -537,18 +610,21 @@ function parseAuthProfileStore(raw: string): AuthProfileStore | undefined {
 
     const rawOrder = isRecord(parsed.order) ? parsed.order : undefined;
     const order: Record<string, string[]> | undefined = rawOrder
-      ? Object.entries(rawOrder).reduce<Record<string, string[]>>((acc, [provider, value]) => {
-          if (!Array.isArray(value)) {
+      ? Object.entries(rawOrder).reduce<Record<string, string[]>>(
+          (acc, [provider, value]) => {
+            if (!Array.isArray(value)) {
+              return acc;
+            }
+            const ids = value
+              .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+              .filter(Boolean);
+            if (ids.length > 0) {
+              acc[provider] = ids;
+            }
             return acc;
-          }
-          const ids = value
-            .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-            .filter(Boolean);
-          if (ids.length > 0) {
-            acc[provider] = ids;
-          }
-          return acc;
-        }, {})
+          },
+          {},
+        )
       : undefined;
 
     return {
@@ -561,7 +637,9 @@ function parseAuthProfileStore(raw: string): AuthProfileStore | undefined {
 }
 
 /** Merge auth stores, letting later stores override earlier profiles/order. */
-function mergeAuthProfileStores(stores: AuthProfileStore[]): AuthProfileStore | undefined {
+function mergeAuthProfileStores(
+  stores: AuthProfileStore[],
+): AuthProfileStore | undefined {
   if (stores.length === 0) {
     return undefined;
   }
@@ -576,7 +654,10 @@ function mergeAuthProfileStores(stores: AuthProfileStore[]): AuthProfileStore | 
 }
 
 /** Determine candidate auth store paths ordered by precedence. */
-function resolveAuthStorePaths(params: { agentDir?: string; envSnapshot: PluginEnvSnapshot }): string[] {
+function resolveAuthStorePaths(params: {
+  agentDir?: string;
+  envSnapshot: PluginEnvSnapshot;
+}): string[] {
   const paths: string[] = [];
   const directAgentDir = params.agentDir?.trim();
   if (directAgentDir) {
@@ -590,7 +671,9 @@ function resolveAuthStorePaths(params: { agentDir?: string; envSnapshot: PluginE
 
   const home = params.envSnapshot.home;
   if (home) {
-    paths.push(join(home, ".openclaw", "agents", "main", "agent", "auth-profiles.json"));
+    paths.push(
+      join(home, ".openclaw", "agents", "main", "agent", "auth-profiles.json"),
+    );
   }
 
   return [...new Set(paths)];
@@ -617,7 +700,10 @@ function resolveAuthProfileCandidates(params: {
 
   push(params.authProfileId);
 
-  const storeOrder = findProviderConfigValue(params.store.order, params.provider);
+  const storeOrder = findProviderConfigValue(
+    params.store.order,
+    params.provider,
+  );
   for (const profileId of storeOrder ?? []) {
     push(profileId);
   }
@@ -626,7 +712,9 @@ function resolveAuthProfileCandidates(params: {
     const auth = params.runtimeConfig.auth;
     if (isRecord(auth)) {
       const order = findProviderConfigValue(
-        isRecord(auth.order) ? (auth.order as Record<string, unknown>) : undefined,
+        isRecord(auth.order)
+          ? (auth.order as Record<string, unknown>)
+          : undefined,
         params.provider,
       );
       if (Array.isArray(order)) {
@@ -682,14 +770,17 @@ function resolveSecretRef(params: {
   // File-based provider config — use configured file provider when present.
   try {
     const providers = isRecord(params.config)
-      ? (params.config as { secrets?: { providers?: Record<string, unknown> } }).secrets?.providers
+      ? (params.config as { secrets?: { providers?: Record<string, unknown> } })
+          .secrets?.providers
       : undefined;
     const providerName = ref.provider?.trim() || "default";
     const provider =
-      providers && isRecord(providers)
-        ? providers[providerName]
-        : undefined;
-    if (isRecord(provider) && provider.source === "file" && typeof provider.path === "string") {
+      providers && isRecord(providers) ? providers[providerName] : undefined;
+    if (
+      isRecord(provider) &&
+      provider.source === "file" &&
+      typeof provider.path === "string"
+    ) {
       const configuredPath = provider.path.trim();
       const filePath =
         configuredPath.startsWith("~/") && params.home
@@ -714,7 +805,9 @@ function resolveSecretRef(params: {
         if (!current || typeof current !== "object") return undefined;
         current = (current as Record<string, unknown>)[part];
       }
-      return typeof current === "string" && current.trim() ? current.trim() : undefined;
+      return typeof current === "string" && current.trim()
+        ? current.trim()
+        : undefined;
     }
   } catch {
     // Fall through to the legacy secrets.json lookup below.
@@ -731,7 +824,9 @@ function resolveSecretRef(params: {
       if (!current || typeof current !== "object") return undefined;
       current = (current as Record<string, unknown>)[part];
     }
-    return typeof current === "string" && current.trim() ? current.trim() : undefined;
+    return typeof current === "string" && current.trim()
+      ? current.trim()
+      : undefined;
   } catch {
     return undefined;
   }
@@ -759,12 +854,16 @@ async function resolveApiKeyFromAuthProfiles(params: {
         return undefined;
       }
     })
-    .filter((entry): entry is { path: string; store: AuthProfileStore } => !!entry);
+    .filter(
+      (entry): entry is { path: string; store: AuthProfileStore } => !!entry,
+    );
   if (storesWithPaths.length === 0) {
     return undefined;
   }
 
-  const mergedStore = mergeAuthProfileStores(storesWithPaths.map((entry) => entry.store));
+  const mergedStore = mergeAuthProfileStores(
+    storesWithPaths.map((entry) => entry.store),
+  );
   if (!mergedStore) {
     return undefined;
   }
@@ -779,14 +878,20 @@ async function resolveApiKeyFromAuthProfiles(params: {
     return undefined;
   }
 
-  const persistPath =
-    params.agentDir?.trim() ? join(params.agentDir.trim(), "auth-profiles.json") : storesWithPaths[0]?.path;
+  const persistPath = params.agentDir?.trim()
+    ? join(params.agentDir.trim(), "auth-profiles.json")
+    : storesWithPaths[0]?.path;
   const secretConfig = (() => {
     if (isRecord(params.runtimeConfig)) {
-      const runtimeProviders = (params.runtimeConfig as {
-        secrets?: { providers?: Record<string, unknown> };
-      }).secrets?.providers;
-      if (isRecord(runtimeProviders) && Object.keys(runtimeProviders).length > 0) {
+      const runtimeProviders = (
+        params.runtimeConfig as {
+          secrets?: { providers?: Record<string, unknown> };
+        }
+      ).secrets?.providers;
+      if (
+        isRecord(runtimeProviders) &&
+        Object.keys(runtimeProviders).length > 0
+      ) {
         return params.runtimeConfig;
       }
     }
@@ -798,7 +903,10 @@ async function resolveApiKeyFromAuthProfiles(params: {
     if (!credential) {
       continue;
     }
-    if (normalizeProviderId(credential.provider) !== normalizeProviderId(params.provider)) {
+    if (
+      normalizeProviderId(credential.provider) !==
+      normalizeProviderId(params.provider)
+    ) {
       continue;
     }
 
@@ -828,7 +936,12 @@ async function resolveApiKeyFromAuthProfiles(params: {
         continue;
       }
       const expires = credential.expires;
-      if (typeof expires === "number" && Number.isFinite(expires) && expires > 0 && Date.now() >= expires) {
+      if (
+        typeof expires === "number" &&
+        Number.isFinite(expires) &&
+        expires > 0 &&
+        Date.now() >= expires
+      ) {
         continue;
       }
       return token;
@@ -837,7 +950,10 @@ async function resolveApiKeyFromAuthProfiles(params: {
     const access = credential.access?.trim();
     const expires = credential.expires;
     const isExpired =
-      typeof expires === "number" && Number.isFinite(expires) && expires > 0 && Date.now() >= expires;
+      typeof expires === "number" &&
+      Number.isFinite(expires) &&
+      expires > 0 &&
+      Date.now() >= expires;
     const shouldPreferOAuthHelper =
       typeof params.piAiModule.getOAuthApiKey === "function" &&
       normalizeProviderId(params.provider) === "openai-codex";
@@ -847,13 +963,21 @@ async function resolveApiKeyFromAuthProfiles(params: {
         const oauthCredential = {
           access: credential.access ?? "",
           refresh: credential.refresh ?? "",
-          expires: typeof credential.expires === "number" ? credential.expires : 0,
-          ...(typeof credential.projectId === "string" ? { projectId: credential.projectId } : {}),
-          ...(typeof credential.accountId === "string" ? { accountId: credential.accountId } : {}),
+          expires:
+            typeof credential.expires === "number" ? credential.expires : 0,
+          ...(typeof credential.projectId === "string"
+            ? { projectId: credential.projectId }
+            : {}),
+          ...(typeof credential.accountId === "string"
+            ? { accountId: credential.accountId }
+            : {}),
         };
-        const refreshed = await params.piAiModule.getOAuthApiKey(params.provider, {
-          [params.provider]: oauthCredential,
-        });
+        const refreshed = await params.piAiModule.getOAuthApiKey(
+          params.provider,
+          {
+            [params.provider]: oauthCredential,
+          },
+        );
         if (refreshed?.apiKey) {
           mergedStore.profiles[profileId] = {
             ...credential,
@@ -888,7 +1012,8 @@ async function resolveApiKeyFromAuthProfiles(params: {
 
     if (!isExpired && access) {
       if (
-        (credential.provider === "google-gemini-cli" || credential.provider === "google-antigravity") &&
+        (credential.provider === "google-gemini-cli" ||
+          credential.provider === "google-antigravity") &&
         typeof credential.projectId === "string" &&
         credential.projectId.trim()
       ) {
@@ -908,13 +1033,21 @@ async function resolveApiKeyFromAuthProfiles(params: {
       const oauthCredential = {
         access: credential.access ?? "",
         refresh: credential.refresh ?? "",
-        expires: typeof credential.expires === "number" ? credential.expires : 0,
-        ...(typeof credential.projectId === "string" ? { projectId: credential.projectId } : {}),
-        ...(typeof credential.accountId === "string" ? { accountId: credential.accountId } : {}),
+        expires:
+          typeof credential.expires === "number" ? credential.expires : 0,
+        ...(typeof credential.projectId === "string"
+          ? { projectId: credential.projectId }
+          : {}),
+        ...(typeof credential.accountId === "string"
+          ? { accountId: credential.accountId }
+          : {}),
       };
-      const refreshed = await params.piAiModule.getOAuthApiKey(params.provider, {
-        [params.provider]: oauthCredential,
-      });
+      const refreshed = await params.piAiModule.getOAuthApiKey(
+        params.provider,
+        {
+          [params.provider]: oauthCredential,
+        },
+      );
       if (!refreshed?.apiKey) {
         continue;
       }
@@ -959,7 +1092,8 @@ function buildSubagentSystemPrompt(params: {
   maxDepth: number;
   taskSummary?: string;
 }): string {
-  const task = params.taskSummary?.trim() || "Perform delegated LCM expansion work.";
+  const task =
+    params.taskSummary?.trim() || "Perform delegated LCM expansion work.";
   return [
     "You are a delegated sub-agent for LCM expansion.",
     `Depth: ${params.depth}/${params.maxDepth}`,
@@ -996,7 +1130,11 @@ function readLatestAssistantReply(messages: unknown[]): string | undefined {
       .filter((entry): entry is { type?: unknown; text?: unknown } => {
         return !!entry && typeof entry === "object";
       })
-      .map((entry) => (entry.type === "text" && typeof entry.text === "string" ? entry.text : ""))
+      .map((entry) =>
+        entry.type === "text" && typeof entry.text === "string"
+          ? entry.text
+          : "",
+      )
       .filter(Boolean)
       .join("\n")
       .trim();
@@ -1016,7 +1154,9 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
   const modelAuth = getRuntimeModelAuth(api);
   const readEnv: ReadEnvFn = (key) => process.env[key];
   const pluginConfig =
-    api.pluginConfig && typeof api.pluginConfig === "object" && !Array.isArray(api.pluginConfig)
+    api.pluginConfig &&
+    typeof api.pluginConfig === "object" &&
+    !Array.isArray(api.pluginConfig)
       ? api.pluginConfig
       : undefined;
   const config = resolveLcmConfig(process.env, pluginConfig);
@@ -1080,17 +1220,26 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
         }
 
         const knownModel =
-          typeof mod.getModel === "function" ? mod.getModel(providerId, modelId) : undefined;
+          typeof mod.getModel === "function"
+            ? mod.getModel(providerId, modelId)
+            : undefined;
         const fallbackApi =
           providerApi?.trim() ||
-          resolveProviderApiFromRuntimeConfig(effectiveRuntimeConfig, providerId) ||
+          resolveProviderApiFromRuntimeConfig(
+            effectiveRuntimeConfig,
+            providerId,
+          ) ||
           (() => {
             if (typeof mod.getModels !== "function") {
               return undefined;
             }
             const models = mod.getModels(providerId);
             const first = Array.isArray(models) ? models[0] : undefined;
-            if (!isRecord(first) || typeof first.api !== "string" || !first.api.trim()) {
+            if (
+              !isRecord(first) ||
+              typeof first.api !== "string" ||
+              !first.api.trim()
+            ) {
               return undefined;
             }
             return first.api.trim();
@@ -1105,8 +1254,11 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
         // and the apiKey is unresolvable, causing 401 errors.  See #19.
         const providerLevelConfig: Record<string, unknown> = (() => {
           if (!isRecord(effectiveRuntimeConfig)) return {};
-          const providers = (effectiveRuntimeConfig as { models?: { providers?: Record<string, unknown> } })
-            .models?.providers;
+          const providers = (
+            effectiveRuntimeConfig as {
+              models?: { providers?: Record<string, unknown> };
+            }
+          ).models?.providers;
           if (!providers) return {};
           const cfg = findProviderConfigValue(providers, providerId);
           return isRecord(cfg) ? cfg : {};
@@ -1131,7 +1283,8 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
                     : typeof providerLevelConfig.baseUrl === "string"
                       ? providerLevelConfig.baseUrl
                       : "",
-                ...(knownModel.headers == null && isRecord(providerLevelConfig.headers)
+                ...(knownModel.headers == null &&
+                isRecord(providerLevelConfig.headers)
                   ? { headers: providerLevelConfig.headers }
                   : {}),
               }
@@ -1152,9 +1305,10 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
                 maxTokens: 8_000,
                 // Always set baseUrl to a string — pi-ai's detectCompat() crashes when
                 // baseUrl is undefined.
-                baseUrl: typeof providerLevelConfig.baseUrl === "string"
-                  ? providerLevelConfig.baseUrl
-                  : "",
+                baseUrl:
+                  typeof providerLevelConfig.baseUrl === "string"
+                    ? providerLevelConfig.baseUrl
+                    : "",
                 ...(isRecord(providerLevelConfig.headers)
                   ? { headers: providerLevelConfig.headers }
                   : {}),
@@ -1217,11 +1371,17 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
         // Fallback: read apiKey from models.providers config (e.g. proxy providers
         // with keys like "not-needed-for-cli-proxy").
         if (!resolvedApiKey && isRecord(effectiveRuntimeConfig)) {
-          const providers = (effectiveRuntimeConfig as { models?: { providers?: Record<string, unknown> } })
-            .models?.providers;
+          const providers = (
+            effectiveRuntimeConfig as {
+              models?: { providers?: Record<string, unknown> };
+            }
+          ).models?.providers;
           if (providers) {
             const providerCfg = findProviderConfigValue(providers, providerId);
-            if (isRecord(providerCfg) && typeof providerCfg.apiKey === "string") {
+            if (
+              isRecord(providerCfg) &&
+              typeof providerCfg.apiKey === "string"
+            ) {
               const cfgKey = providerCfg.apiKey.trim();
               if (cfgKey) {
                 resolvedApiKey = cfgKey;
@@ -1242,13 +1402,19 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
           request_model: modelId,
           request_api: resolvedModel.api,
           request_reasoning:
-            typeof reasoning === "string" && reasoning.trim() ? reasoning.trim() : "(none)",
-          request_has_system: typeof system === "string" && system.trim().length > 0 ? "true" : "false",
+            typeof reasoning === "string" && reasoning.trim()
+              ? reasoning.trim()
+              : "(none)",
+          request_has_system:
+            typeof system === "string" && system.trim().length > 0
+              ? "true"
+              : "false",
           request_temperature:
             typeof completeOptions.temperature === "number"
               ? String(completeOptions.temperature)
               : "(omitted)",
-          request_temperature_sent: typeof completeOptions.temperature === "number" ? "true" : "false",
+          request_temperature_sent:
+            typeof completeOptions.temperature === "number" ? "true" : "false",
         };
 
         const result = await mod.completeSimple(
@@ -1279,7 +1445,10 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
           ...requestMetadata,
         };
       } catch (err) {
-        console.error(`[lcm] completeSimple error:`, err instanceof Error ? err.message : err);
+        console.error(
+          `[lcm] completeSimple error:`,
+          err instanceof Error ? err.message : err,
+        );
         const authError = detectProviderAuthError(err);
         return {
           content: [],
@@ -1296,7 +1465,9 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
             message: String(params.params?.message ?? ""),
             provider: params.params?.provider as string | undefined,
             model: params.params?.model as string | undefined,
-            extraSystemPrompt: params.params?.extraSystemPrompt as string | undefined,
+            extraSystemPrompt: params.params?.extraSystemPrompt as
+              | string
+              | undefined,
             lane: params.params?.lane as string | undefined,
             deliver: (params.params?.deliver as boolean) ?? false,
             idempotencyKey: params.params?.idempotencyKey as string | undefined,
@@ -1314,19 +1485,23 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
         case "sessions.delete":
           await sub.deleteSession({
             sessionKey: String(params.params?.key ?? ""),
-            deleteTranscript: (params.params?.deleteTranscript as boolean) ?? true,
+            deleteTranscript:
+              (params.params?.deleteTranscript as boolean) ?? true,
           });
           return {};
         default:
-          throw new Error(`Unsupported gateway method in LCM plugin: ${params.method}`);
+          throw new Error(
+            `Unsupported gateway method in LCM plugin: ${params.method}`,
+          );
       }
     },
     resolveModel: (modelRef, providerHint) => {
-      const raw =
-        (envSnapshot.lcmSummaryModel ||
-         config.summaryModel ||
-         modelRef?.trim() ||
-         envSnapshot.openclawDefaultModel).trim();
+      const raw = (
+        envSnapshot.lcmSummaryModel ||
+        config.summaryModel ||
+        modelRef?.trim() ||
+        envSnapshot.openclawDefaultModel
+      ).trim();
       if (!raw) {
         throw new Error("No model configured for LCM summarization.");
       }
@@ -1356,7 +1531,9 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
               model: buildModelAuthLookupModel({ provider, model }),
               cfg: api.config,
               ...(options?.profileId ? { profileId: options.profileId } : {}),
-              ...(options?.preferredProfile ? { preferredProfile: options.preferredProfile } : {}),
+              ...(options?.preferredProfile
+                ? { preferredProfile: options.preferredProfile }
+                : {}),
             }),
           );
           if (modelAuthKey) {
@@ -1392,7 +1569,9 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
                 model: buildModelAuthLookupModel({ provider, model }),
                 cfg: api.config,
                 ...(options?.profileId ? { profileId: options.profileId } : {}),
-                ...(options?.preferredProfile ? { preferredProfile: options.preferredProfile } : {}),
+                ...(options?.preferredProfile
+                  ? { preferredProfile: options.preferredProfile }
+                  : {}),
               }),
             );
             if (modelAuthKey) {
@@ -1420,7 +1599,9 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
         });
       })();
       if (!key) {
-        throw new Error(`Missing API key for provider '${provider}' (model '${model}').`);
+        throw new Error(
+          `Missing API key for provider '${provider}' (model '${model}').`,
+        );
       }
       return key;
     },
@@ -1443,13 +1624,21 @@ function createLcmDependencies(api: OpenClawPluginApi): LcmDependencies {
         const cfg = api.runtime.config.loadConfig();
         const parsed = parseAgentSessionKey(key);
         const agentId = normalizeAgentId(parsed?.agentId);
-        const storePath = api.runtime.channel.session.resolveStorePath(cfg.session?.store, {
-          agentId,
-        });
+        const storePath = api.runtime.channel.session.resolveStorePath(
+          cfg.session?.store,
+          {
+            agentId,
+          },
+        );
         const raw = readFileSync(storePath, "utf8");
-        const store = JSON.parse(raw) as Record<string, { sessionId?: string } | undefined>;
+        const store = JSON.parse(raw) as Record<
+          string,
+          { sessionId?: string } | undefined
+        >;
         const sessionId = store[key]?.sessionId;
-        return typeof sessionId === "string" && sessionId.trim() ? sessionId.trim() : undefined;
+        return typeof sessionId === "string" && sessionId.trim()
+          ? sessionId.trim()
+          : undefined;
       } catch {
         return undefined;
       }

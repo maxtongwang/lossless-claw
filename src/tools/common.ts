@@ -1,6 +1,18 @@
-import type { AnyAgentTool as OpenClawAnyAgentTool } from "openclaw/plugin-sdk";
-
-export type AnyAgentTool = OpenClawAnyAgentTool;
+// AnyAgentTool — minimal shape for tool registration.
+// Inlined from openclaw/plugin-sdk to decouple from OpenClaw.
+export type AnyAgentTool = {
+  name: string;
+  label: string;
+  description?: string;
+  parameters?: unknown;
+  execute: (
+    toolCallId: string,
+    params: Record<string, unknown>,
+    signal?: AbortSignal,
+    onUpdate?: unknown,
+  ) => Promise<unknown>;
+  ownerOnly?: boolean;
+};
 
 /** Render structured payloads as deterministic text tool results. */
 export function jsonResult(payload: unknown): {

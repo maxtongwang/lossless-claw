@@ -1,11 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, createReadStream, openSync, readSync, statSync } from "node:fs";
+import {
+  closeSync,
+  createReadStream,
+  openSync,
+  readSync,
+  statSync,
+} from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { createInterface } from "node:readline";
 import type {
+  AgentMessage,
   ContextEngine,
   ContextEngineInfo,
   AssembleResult,
@@ -15,7 +22,7 @@ import type {
   IngestResult,
   SubagentEndReason,
   SubagentSpawnPreparation,
-} from "openclaw/plugin-sdk";
+} from "./context-engine-types.js";
 import { blockFromPart, ContextAssembler } from "./assembler.js";
 import { CompactionEngine, type CompactionConfig } from "./compaction.js";
 import type { LcmConfig } from "./db/config.js";
@@ -36,7 +43,10 @@ import {
   parseFileBlocks,
 } from "./large-files.js";
 import { RetrievalEngine } from "./retrieval.js";
-import { compileSessionPatterns, matchesSessionPattern } from "./session-patterns.js";
+import {
+  compileSessionPatterns,
+  matchesSessionPattern,
+} from "./session-patterns.js";
 import { logStartupBannerOnce } from "./startup-banner-log.js";
 import {
   ConversationStore,
@@ -45,11 +55,15 @@ import {
   type MessagePartType,
 } from "./store/conversation-store.js";
 import { SummaryStore } from "./store/summary-store.js";
-import { createLcmSummarizeFromLegacyParams, LcmProviderAuthError } from "./summarize.js";
+import {
+  createLcmSummarizeFromLegacyParams,
+  LcmProviderAuthError,
+} from "./summarize.js";
 import type { LcmDependencies } from "./types.js";
 
-type AgentMessage = Parameters<ContextEngine["ingest"]>[0]["message"];
-type AssembleResultWithSystemPrompt = AssembleResult & { systemPromptAddition?: string };
+type AssembleResultWithSystemPrompt = AssembleResult & {
+  systemPromptAddition?: string;
+};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,7 +111,13 @@ function appendTextValue(value: unknown, out: string[]): void {
   appendTextValue(record.value, out);
 }
 
-const STRUCTURED_TEXT_FIELD_KEYS = ["text", "transcript", "transcription", "message", "summary"];
+const STRUCTURED_TEXT_FIELD_KEYS = [
+  "text",
+  "transcript",
+  "transcription",
+  "message",
+  "summary",
+];
 const STRUCTURED_ARRAY_FIELD_KEYS = [
   "segments",
   "utterances",
@@ -107,7 +127,14 @@ const STRUCTURED_ARRAY_FIELD_KEYS = [
   "items",
   "results",
 ];
-const STRUCTURED_NESTED_FIELD_KEYS = ["content", "output", "result", "payload", "data", "value"];
+const STRUCTURED_NESTED_FIELD_KEYS = [
+  "content",
+  "output",
+  "result",
+  "payload",
+  "data",
+  "value",
+];
 const MAX_STRUCTURED_TEXT_DEPTH = 6;
 const TOOL_RAW_TYPES: ReadonlySet<string> = new Set([
   "tool_use",
@@ -134,7 +161,10 @@ function looksLikeJsonPayload(value: string): boolean {
   );
 }
 
-function extractStructuredText(value: unknown, depth: number = 0): string | undefined {
+function extractStructuredText(
+  value: unknown,
+  depth: number = 0,
+): string | undefined {
   if (value == null || depth > MAX_STRUCTURED_TEXT_DEPTH) {
     return undefined;
   }
@@ -175,7 +205,10 @@ function extractStructuredText(value: unknown, depth: number = 0): string | unde
         extractStructuredText(record.output, depth + 1) ??
         extractStructuredText(record.content, depth + 1) ??
         extractStructuredText(record.result, depth + 1);
-      if (typeof externalizedText === "string" && externalizedText.trim().length > 0) {
+      if (
+        typeof externalizedText === "string" &&
+        externalizedText.trim().length > 0
+      ) {
         return externalizedText;
       }
     }
@@ -216,7 +249,9 @@ function extractStructuredText(value: unknown, depth: number = 0): string | unde
   return undefined;
 }
 
-function extractReasoningText(record: Record<string, unknown>): string | undefined {
+function extractReasoningText(
+  record: Record<string, unknown>,
+): string | undefined {
   const chunks: string[] = [];
   appendTextValue(record.summary, chunks);
   if (chunks.length === 0) {
@@ -225,7 +260,9 @@ function extractReasoningText(record: Record<string, unknown>): string | undefin
 
   const normalized = chunks
     .map((chunk) => chunk.trim())
-    .filter((chunk, idx, arr) => chunk.length > 0 && arr.indexOf(chunk) === idx);
+    .filter(
+      (chunk, idx, arr) => chunk.length > 0 && arr.indexOf(chunk) === idx,
+    );
   return normalized.length > 0 ? normalized.join("\n") : undefined;
 }
 
@@ -248,7 +285,7 @@ function normalizeUnknownBlock(value: unknown): {
     text:
       safeString(record.text) ??
       safeString(record.thinking) ??
-      ((rawType === "reasoning" || rawType === "thinking")
+      (rawType === "reasoning" || rawType === "thinking"
         ? extractReasoningText(record)
         : undefined),
     metadata: { raw: record },
@@ -318,11 +355,18 @@ function extractMessageContent(content: unknown): string {
   }
   // If content is an array of only tool call/result objects, store as empty
   // (structured data is preserved in the message parts table)
-  if (Array.isArray(content) && content.length > 0 && content.every(
-    (item) => typeof item === "object" && item !== null && !Array.isArray(item) &&
-      typeof (item as Record<string, unknown>).type === "string" &&
-      TOOL_RAW_TYPES.has((item as Record<string, unknown>).type as string)
-  )) {
+  if (
+    Array.isArray(content) &&
+    content.length > 0 &&
+    content.every(
+      (item) =>
+        typeof item === "object" &&
+        item !== null &&
+        !Array.isArray(item) &&
+        typeof (item as Record<string, unknown>).type === "string" &&
+        TOOL_RAW_TYPES.has((item as Record<string, unknown>).type as string),
+    )
+  ) {
     return "";
   }
 
@@ -330,7 +374,9 @@ function extractMessageContent(content: unknown): string {
   return typeof serialized === "string" ? serialized : "";
 }
 
-function toRuntimeRoleForTokenEstimate(role: string): "user" | "assistant" | "toolResult" {
+function toRuntimeRoleForTokenEstimate(
+  role: string,
+): "user" | "assistant" | "toolResult" {
   if (role === "tool" || role === "toolResult") {
     return "toolResult";
   }
@@ -459,11 +505,9 @@ function buildMessageParts(params: {
     safeString(topLevel.call_id) ??
     safeString(topLevel.id);
   const topLevelToolName =
-    safeString(topLevel.toolName) ??
-    safeString(topLevel.tool_name);
+    safeString(topLevel.toolName) ?? safeString(topLevel.tool_name);
   const topLevelIsError =
-    safeBoolean(topLevel.isError) ??
-    safeBoolean(topLevel.is_error);
+    safeBoolean(topLevel.isError) ?? safeBoolean(topLevel.is_error);
 
   // BashExecutionMessage: preserve a synthetic text part so output is round-trippable.
   if (!("content" in message) && "command" in message && "output" in message) {
@@ -534,7 +578,9 @@ function buildMessageParts(params: {
   const parts: CreateMessagePartInput[] = [];
   for (let ordinal = 0; ordinal < message.content.length; ordinal++) {
     const block = normalizeUnknownBlock(message.content[ordinal]);
-    const metadataRecord = block.metadata.raw as Record<string, unknown> | undefined;
+    const metadataRecord = block.metadata.raw as
+      | Record<string, unknown>
+      | undefined;
     const partType = toPartType(block.type);
     const toolCallId =
       safeString(metadataRecord?.toolCallId) ??
@@ -561,9 +607,9 @@ function buildMessageParts(params: {
           ? toJson(metadataRecord.input)
           : metadataRecord?.arguments !== undefined
             ? toJson(metadataRecord.arguments)
-          : metadataRecord?.toolInput !== undefined
-            ? toJson(metadataRecord.toolInput)
-            : (safeString(metadataRecord?.tool_input) ?? null),
+            : metadataRecord?.toolInput !== undefined
+              ? toJson(metadataRecord.toolInput)
+              : (safeString(metadataRecord?.tool_input) ?? null),
       toolOutput:
         metadataRecord?.output !== undefined
           ? toJson(metadataRecord.output)
@@ -580,8 +626,12 @@ function buildMessageParts(params: {
           typeof metadataRecord?.originalByteSize === "number"
             ? metadataRecord.originalByteSize
             : undefined,
-        toolOutputExternalized: safeBoolean(metadataRecord?.toolOutputExternalized),
-        externalizationReason: safeString(metadataRecord?.externalizationReason),
+        toolOutputExternalized: safeBoolean(
+          metadataRecord?.toolOutputExternalized,
+        ),
+        externalizationReason: safeString(
+          metadataRecord?.externalizationReason,
+        ),
         rawType: block.type,
         raw: metadataRecord ?? message.content[ordinal],
       }),
@@ -657,7 +707,9 @@ function toStoredMessage(message: AgentMessage): StoredMessage {
   };
 }
 
-function createBootstrapEntryHash(message: StoredMessage | null): string | null {
+function createBootstrapEntryHash(
+  message: StoredMessage | null,
+): string | null {
   if (!message) {
     return null;
   }
@@ -696,7 +748,9 @@ function estimateMessageContentTokensForAfterTurn(content: unknown): number {
   return estimateTokens(typeof serialized === "string" ? serialized : "");
 }
 
-function estimateSessionTokenCountForAfterTurn(messages: AgentMessage[]): number {
+function estimateSessionTokenCountForAfterTurn(
+  messages: AgentMessage[],
+): number {
   let total = 0;
   for (const message of messages) {
     if ("content" in message) {
@@ -722,7 +776,12 @@ function isBootstrapMessage(value: unknown): value is AgentMessage {
   if (!value || typeof value !== "object") {
     return false;
   }
-  const msg = value as { role?: unknown; content?: unknown; command?: unknown; output?: unknown };
+  const msg = value as {
+    role?: unknown;
+    content?: unknown;
+    command?: unknown;
+    output?: unknown;
+  };
   if (typeof msg.role !== "string") {
     return false;
   }
@@ -737,9 +796,16 @@ function extractBootstrapMessageCandidate(value: unknown): AgentMessage | null {
   return isBootstrapMessage(candidate) ? candidate : null;
 }
 
-function parseBootstrapJsonl(raw: string, options?: {
-  strict?: boolean;
-}): { messages: AgentMessage[]; sawNonWhitespace: boolean; hadMalformedLine: boolean } {
+function parseBootstrapJsonl(
+  raw: string,
+  options?: {
+    strict?: boolean;
+  },
+): {
+  messages: AgentMessage[];
+  sawNonWhitespace: boolean;
+  hadMalformedLine: boolean;
+} {
   const messages: AgentMessage[] = [];
   const lines = raw.split(/\r?\n/);
   let sawNonWhitespace = false;
@@ -770,7 +836,9 @@ function parseBootstrapJsonl(raw: string, options?: {
 }
 
 /** Load recoverable messages from a JSON/JSONL session file without full-file reads for JSONL. */
-async function readLeafPathMessages(sessionFile: string): Promise<AgentMessage[]> {
+async function readLeafPathMessages(
+  sessionFile: string,
+): Promise<AgentMessage[]> {
   try {
     let sawNonWhitespace = false;
     let jsonArrayMode = false;
@@ -848,7 +916,10 @@ function readFileSegment(sessionFile: string, offset: number): string | null {
   }
 }
 
-function readLastJsonlEntryBeforeOffset(sessionFile: string, offset: number): string | null {
+function readLastJsonlEntryBeforeOffset(
+  sessionFile: string,
+  offset: number,
+): string | null {
   const chunkSize = 16_384;
   let fd: number | null = null;
   try {
@@ -874,7 +945,10 @@ function readLastJsonlEntryBeforeOffset(sessionFile: string, offset: number): st
         continue;
       }
 
-      const newlineIndex = Math.max(trimmedEnd.lastIndexOf("\n"), trimmedEnd.lastIndexOf("\r"));
+      const newlineIndex = Math.max(
+        trimmedEnd.lastIndexOf("\n"),
+        trimmedEnd.lastIndexOf("\r"),
+      );
       if (newlineIndex >= 0) {
         const candidate = trimmedEnd.slice(newlineIndex + 1).trim();
         if (candidate) {
@@ -903,7 +977,11 @@ function readLastJsonlEntryBeforeOffset(sessionFile: string, offset: number): st
 function readAppendedLeafPathMessages(params: {
   sessionFile: string;
   offset: number;
-}): { messages: AgentMessage[]; canUseAppendOnly: boolean; sawNonWhitespace: boolean } {
+}): {
+  messages: AgentMessage[];
+  canUseAppendOnly: boolean;
+  sawNonWhitespace: boolean;
+} {
   const raw = readFileSegment(params.sessionFile, params.offset);
   if (raw == null) {
     return { messages: [], canUseAppendOnly: false, sawNonWhitespace: false };
@@ -920,7 +998,11 @@ function readAppendedLeafPathMessages(params: {
 
   const parsed = parseBootstrapJsonl(raw, { strict: true });
   if (parsed.hadMalformedLine) {
-    return { messages: [], canUseAppendOnly: false, sawNonWhitespace: parsed.sawNonWhitespace };
+    return {
+      messages: [],
+      canUseAppendOnly: false,
+      sawNonWhitespace: parsed.sawNonWhitespace,
+    };
   }
 
   return {
@@ -930,7 +1012,9 @@ function readAppendedLeafPathMessages(params: {
   };
 }
 
-function readBootstrapMessageFromJsonLine(line: string | null): AgentMessage | null {
+function readBootstrapMessageFromJsonLine(
+  line: string | null,
+): AgentMessage | null {
   if (!line) {
     return null;
   }
@@ -954,7 +1038,9 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Get the configured timezone, falling back to system timezone. */
   get timezone(): string {
-    return this.config.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return (
+      this.config.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
+    );
   }
 
   private conversationStore: ConversationStore;
@@ -962,7 +1048,7 @@ export class LcmContextEngine implements ContextEngine {
   private assembler: ContextAssembler;
   private compaction: CompactionEngine;
   private retrieval: RetrievalEngine;
-  private readonly db: DatabaseSync;
+  private readonly db: DatabaseSync | null;
   private migrated = false;
   private readonly fts5Available: boolean;
   private readonly ignoreSessionPatterns: RegExp[];
@@ -975,56 +1061,98 @@ export class LcmContextEngine implements ContextEngine {
   private largeFileTextSummarizer?: (prompt: string) => Promise<string | null>;
   private deps: LcmDependencies;
 
-  constructor(deps: LcmDependencies, database: DatabaseSync) {
+  /**
+   * Create an LCM context engine.
+   *
+   * Two modes:
+   * 1. SQLite (original): pass `database: DatabaseSync` — stores created internally
+   * 2. Custom stores (DI): pass `stores: { conversationStore, summaryStore }` — host app provides persistence
+   *
+   * Custom stores mode skips SQLite connection, migration, and FTS5 detection entirely.
+   */
+  constructor(
+    deps: LcmDependencies,
+    databaseOrStores:
+      | DatabaseSync
+      | {
+          conversationStore: import("./store/types.js").IConversationStore;
+          summaryStore: import("./store/types.js").ISummaryStore;
+        },
+  ) {
     this.deps = deps;
     this.config = deps.config;
-    this.ignoreSessionPatterns = compileSessionPatterns(this.config.ignoreSessionPatterns);
-    this.statelessSessionPatterns = compileSessionPatterns(this.config.statelessSessionPatterns);
-    this.db = database;
+    this.ignoreSessionPatterns = compileSessionPatterns(
+      this.config.ignoreSessionPatterns,
+    );
+    this.statelessSessionPatterns = compileSessionPatterns(
+      this.config.statelessSessionPatterns,
+    );
 
-    this.fts5Available = getLcmDbFeatures(this.db).fts5Available;
+    // Custom stores path — host app manages persistence (Postgres, Supabase, etc.)
+    const isCustomStores =
+      databaseOrStores &&
+      typeof databaseOrStores === "object" &&
+      "conversationStore" in databaseOrStores;
 
-    // Run migrations eagerly at construction time so the schema exists
-    // before any lifecycle hook fires.
-    let migrationOk = false;
-    try {
-      runLcmMigrations(this.db, { fts5Available: this.fts5Available });
-      this.migrated = true;
+    if (isCustomStores) {
+      this.db = null;
+      this.fts5Available = false; // not applicable — host store handles FTS
+      this.migrated = true; // host app manages schema
+      // Cast: IConversationStore/ISummaryStore are supersets of the methods
+      // actually called by engine/assembler/compaction/retrieval.
+      this.conversationStore =
+        databaseOrStores.conversationStore as unknown as ConversationStore;
+      this.summaryStore =
+        databaseOrStores.summaryStore as unknown as SummaryStore;
+      this.info = {
+        id: "lcm",
+        name: "Lossless Context Management Engine",
+        version: "0.1.0",
+        ownsCompaction: true,
+      };
+    } else {
+      // SQLite path — original behavior
+      const database = databaseOrStores as DatabaseSync;
+      this.db = database;
+      this.fts5Available = getLcmDbFeatures(this.db).fts5Available;
 
-      // Verify tables were actually created
-      const tables = this.db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .all() as Array<{ name: string }>;
-      if (tables.length === 0) {
-        this.deps.log.warn(
-          "[lcm] Migration completed but database has zero tables — DB may be non-functional",
-        );
-      } else {
-        migrationOk = true;
-        this.deps.log.debug(
-          `[lcm] Migration successful — ${tables.length} tables: ${tables.map((t) => t.name).join(", ")}`,
+      let migrationOk = false;
+      try {
+        runLcmMigrations(this.db, { fts5Available: this.fts5Available });
+        this.migrated = true;
+        const tables = this.db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+          .all() as Array<{ name: string }>;
+        if (tables.length === 0) {
+          this.deps.log.warn(
+            "[lcm] Migration completed but database has zero tables — DB may be non-functional",
+          );
+        } else {
+          migrationOk = true;
+          this.deps.log.debug(
+            `[lcm] Migration successful — ${tables.length} tables: ${tables.map((t) => t.name).join(", ")}`,
+          );
+        }
+      } catch (err) {
+        this.deps.log.error(
+          `[lcm] Migration failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
-    } catch (err) {
-      this.deps.log.error(
-        `[lcm] Migration failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+
+      this.info = {
+        id: "lcm",
+        name: "Lossless Context Management Engine",
+        version: "0.1.0",
+        ownsCompaction: migrationOk,
+      };
+
+      this.conversationStore = new ConversationStore(this.db, {
+        fts5Available: this.fts5Available,
+      });
+      this.summaryStore = new SummaryStore(this.db, {
+        fts5Available: this.fts5Available,
+      });
     }
-
-    // Only claim ownership of compaction when the DB is operational.
-    // Without a working schema, ownsCompaction would disable the runtime's
-    // built-in compaction safeguard and inflate the context budget.
-    this.info = {
-      id: "lcm",
-      name: "Lossless Context Management Engine",
-      version: "0.1.0",
-      ownsCompaction: migrationOk,
-    };
-
-    this.conversationStore = new ConversationStore(this.db, {
-      fts5Available: this.fts5Available,
-    });
-    this.summaryStore = new SummaryStore(this.db, { fts5Available: this.fts5Available });
 
     if (!this.fts5Available) {
       this.deps.log.warn(
@@ -1038,7 +1166,10 @@ export class LcmContextEngine implements ContextEngine {
         message: `[lcm] Ignoring sessions matching ${this.config.ignoreSessionPatterns.length} pattern(s): ${this.config.ignoreSessionPatterns.join(", ")}`,
       });
     }
-    if (this.config.skipStatelessSessions && this.config.statelessSessionPatterns.length > 0) {
+    if (
+      this.config.skipStatelessSessions &&
+      this.config.statelessSessionPatterns.length > 0
+    ) {
       logStartupBannerOnce({
         key: "stateless-session-patterns",
         log: (message) => this.deps.log.info(message),
@@ -1071,7 +1202,10 @@ export class LcmContextEngine implements ContextEngine {
       compactionConfig,
     );
 
-    this.retrieval = new RetrievalEngine(this.conversationStore, this.summaryStore);
+    this.retrieval = new RetrievalEngine(
+      this.conversationStore,
+      this.summaryStore,
+    );
   }
 
   /**
@@ -1081,7 +1215,10 @@ export class LcmContextEngine implements ContextEngine {
    * documented in terms of session keys, but we fall back to sessionId for
    * older call sites that may not provide the key yet.
    */
-  private shouldIgnoreSession(params: { sessionId?: string; sessionKey?: string }): boolean {
+  private shouldIgnoreSession(params: {
+    sessionId?: string;
+    sessionKey?: string;
+  }): boolean {
     if (this.ignoreSessionPatterns.length === 0) {
       return false;
     }
@@ -1101,9 +1238,9 @@ export class LcmContextEngine implements ContextEngine {
   isStatelessSession(sessionKey: string | undefined): boolean {
     const trimmedKey = typeof sessionKey === "string" ? sessionKey.trim() : "";
     if (
-      !this.config.skipStatelessSessions
-      || !trimmedKey
-      || this.statelessSessionPatterns.length === 0
+      !this.config.skipStatelessSessions ||
+      !trimmedKey ||
+      this.statelessSessionPatterns.length === 0
     ) {
       return false;
     }
@@ -1112,7 +1249,7 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Ensure DB schema is up-to-date. Called lazily on first bootstrap/ingest/assemble/compact. */
   private ensureMigrated(): void {
-    if (this.migrated) {
+    if (this.migrated || !this.db) {
       return;
     }
     runLcmMigrations(this.db, { fts5Available: this.fts5Available });
@@ -1123,7 +1260,10 @@ export class LcmContextEngine implements ContextEngine {
    * Serialize mutating operations per stable session identity to prevent
    * ingest/compaction races across runtime UUID recycling.
    */
-  private async withSessionQueue<T>(queueKey: string, operation: () => Promise<T>): Promise<T> {
+  private async withSessionQueue<T>(
+    queueKey: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
     const entry = this.sessionOperationQueues.get(queueKey);
     const previous = entry?.promise ?? Promise.resolve();
     let releaseQueue: () => void = () => {};
@@ -1152,7 +1292,10 @@ export class LcmContextEngine implements ContextEngine {
   }
 
   /** Prefer stable session keys for queue serialization when available. */
-  private resolveSessionQueueKey(sessionId: string, sessionKey?: string): string {
+  private resolveSessionQueueKey(
+    sessionId: string,
+    sessionKey?: string,
+  ): string {
     const normalizedSessionKey = sessionKey?.trim();
     return normalizedSessionKey || sessionId;
   }
@@ -1198,20 +1341,23 @@ export class LcmContextEngine implements ContextEngine {
       return undefined;
     }
     try {
-      const bySessionKey = await this.conversationStore.getConversationForSession({
-        sessionKey: trimmedKey,
-      });
+      const bySessionKey =
+        await this.conversationStore.getConversationForSession({
+          sessionKey: trimmedKey,
+        });
       if (bySessionKey) {
         return bySessionKey.conversationId;
       }
 
-      const runtimeSessionId = await this.deps.resolveSessionIdFromSessionKey(trimmedKey);
+      const runtimeSessionId =
+        await this.deps.resolveSessionIdFromSessionKey(trimmedKey);
       if (!runtimeSessionId) {
         return undefined;
       }
-      const conversation = await this.conversationStore.getConversationForSession({
-        sessionId: runtimeSessionId,
-      });
+      const conversation =
+        await this.conversationStore.getConversationForSession({
+          sessionId: runtimeSessionId,
+        });
       return conversation?.conversationId;
     } catch {
       return undefined;
@@ -1222,11 +1368,17 @@ export class LcmContextEngine implements ContextEngine {
   private async resolveSummarize(params: {
     legacyParams?: Record<string, unknown>;
     customInstructions?: string;
-  }): Promise<{ summarize: (text: string, aggressive?: boolean) => Promise<string>; summaryModel: string }> {
+  }): Promise<{
+    summarize: (text: string, aggressive?: boolean) => Promise<string>;
+    summaryModel: string;
+  }> {
     const lp = params.legacyParams ?? {};
     if (typeof lp.summarize === "function") {
       return {
-        summarize: lp.summarize as (text: string, aggressive?: boolean) => Promise<string>,
+        summarize: lp.summarize as (
+          text: string,
+          aggressive?: boolean,
+        ) => Promise<string>,
         summaryModel: "unknown",
       };
     }
@@ -1237,14 +1389,27 @@ export class LcmContextEngine implements ContextEngine {
         customInstructions: params.customInstructions,
       });
       if (runtimeSummarizer) {
-        return { summarize: runtimeSummarizer.fn, summaryModel: runtimeSummarizer.model };
+        return {
+          summarize: runtimeSummarizer.fn,
+          summaryModel: runtimeSummarizer.model,
+        };
       }
-      console.error(`[lcm] resolveSummarize: createLcmSummarizeFromLegacyParams returned undefined`);
+      console.error(
+        `[lcm] resolveSummarize: createLcmSummarizeFromLegacyParams returned undefined`,
+      );
     } catch (err) {
-      console.error(`[lcm] resolveSummarize failed, using emergency fallback:`, err instanceof Error ? err.message : err);
+      console.error(
+        `[lcm] resolveSummarize failed, using emergency fallback:`,
+        err instanceof Error ? err.message : err,
+      );
     }
-    console.error(`[lcm] resolveSummarize: FALLING BACK TO EMERGENCY TRUNCATION`);
-    return { summarize: createEmergencyFallbackSummarize(), summaryModel: "unknown" };
+    console.error(
+      `[lcm] resolveSummarize: FALLING BACK TO EMERGENCY TRUNCATION`,
+    );
+    return {
+      summarize: createEmergencyFallbackSummarize(),
+      summaryModel: "unknown",
+    };
   }
 
   /**
@@ -1276,7 +1441,9 @@ export class LcmContextEngine implements ContextEngine {
         return undefined;
       }
 
-      this.largeFileTextSummarizer = async (prompt: string): Promise<string | null> => {
+      this.largeFileTextSummarizer = async (
+        prompt: string,
+      ): Promise<string | null> => {
         let summary: string;
         try {
           summary = await result.fn(prompt, false);
@@ -1305,10 +1472,16 @@ export class LcmContextEngine implements ContextEngine {
     extension: string;
     content: string;
   }): Promise<string> {
-    const dir = join(homedir(), ".openclaw", "lcm-files", String(params.conversationId));
+    const dir = join(
+      homedir(),
+      ".openclaw",
+      "lcm-files",
+      String(params.conversationId),
+    );
     await mkdir(dir, { recursive: true });
 
-    const normalizedExtension = params.extension.replace(/[^a-z0-9]/gi, "").toLowerCase() || "txt";
+    const normalizedExtension =
+      params.extension.replace(/[^a-z0-9]/gi, "").toLowerCase() || "txt";
     const filePath = join(dir, `${params.fileId}.${normalizedExtension}`);
     await writeFile(filePath, params.content, "utf8");
     return filePath;
@@ -1320,8 +1493,17 @@ export class LcmContextEngine implements ContextEngine {
     content: string;
     fileName?: string;
     mimeType?: string;
-    formatReference: (input: { fileId: string; byteSize: number; summary: string }) => string;
-  }): Promise<{ fileId: string; byteSize: number; summary: string; reference: string }> {
+    formatReference: (input: {
+      fileId: string;
+      byteSize: number;
+      summary: string;
+    }) => string;
+  }): Promise<{
+    fileId: string;
+    byteSize: number;
+    summary: string;
+    reference: string;
+  }> {
     const summarizeText = await this.resolveLargeFileTextSummarizer();
     const fileId = `file_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
     const extension = extensionFromNameOrMime(params.fileName, params.mimeType);
@@ -1425,7 +1607,8 @@ export class LcmContextEngine implements ContextEngine {
     message: AgentMessage;
   }): Promise<{ rewrittenMessage: AgentMessage; fileIds: string[] } | null> {
     if (
-      (params.message.role !== "toolResult" && params.message.role !== "tool") ||
+      (params.message.role !== "toolResult" &&
+        params.message.role !== "tool") ||
       !("content" in params.message)
     ) {
       return null;
@@ -1447,11 +1630,9 @@ export class LcmContextEngine implements ContextEngine {
       safeString(topLevel.call_id) ??
       safeString(topLevel.id);
     const topLevelToolName =
-      safeString(topLevel.toolName) ??
-      safeString(topLevel.tool_name);
+      safeString(topLevel.toolName) ?? safeString(topLevel.tool_name);
     const topLevelIsError =
-      safeBoolean(topLevel.isError) ??
-      safeBoolean(topLevel.is_error);
+      safeBoolean(topLevel.isError) ?? safeBoolean(topLevel.is_error);
 
     for (const item of params.message.content) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
@@ -1466,32 +1647,31 @@ export class LcmContextEngine implements ContextEngine {
         rawType !== "toolResult" &&
         rawType !== "function_call_output";
       const isPlainTextToolResult =
-        rawType === "text" &&
-        typeof record.text === "string";
+        rawType === "text" && typeof record.text === "string";
       if (isStructuredToolResult && !isPlainTextToolResult) {
         rewrittenContent.push(item);
         continue;
       }
 
-      const textSource =
-        isPlainTextToolResult
-          ? record.text
-          : record.output !== undefined
+      const textSource = isPlainTextToolResult
+        ? record.text
+        : record.output !== undefined
           ? record.output
           : record.content !== undefined
             ? record.content
             : record;
       const extractedText = extractStructuredText(textSource);
-      if (typeof extractedText !== "string" || estimateTokens(extractedText) < threshold) {
+      if (
+        typeof extractedText !== "string" ||
+        estimateTokens(extractedText) < threshold
+      ) {
         rewrittenContent.push(item);
         continue;
       }
 
       interceptedAny = true;
       const toolName =
-        safeString(record.name) ??
-        topLevelToolName ??
-        "tool-result";
+        safeString(record.name) ?? topLevelToolName ?? "tool-result";
       const externalized = await this.externalizeLargeTextPayload({
         conversationId: params.conversationId,
         content: extractedText,
@@ -1507,7 +1687,9 @@ export class LcmContextEngine implements ContextEngine {
       });
 
       const normalizedRawType =
-        rawType === "function_call_output" ? "function_call_output" : "tool_result";
+        rawType === "function_call_output"
+          ? "function_call_output"
+          : "tool_result";
       const compactBlock: Record<string, unknown> = {
         type: normalizedRawType,
         output: externalized.reference,
@@ -1579,22 +1761,33 @@ export class LcmContextEngine implements ContextEngine {
       return { importedMessages: 0, hasOverlap: false };
     }
 
-    const latestDbMessage = await this.conversationStore.getLastMessage(conversationId);
+    const latestDbMessage =
+      await this.conversationStore.getLastMessage(conversationId);
     if (!latestDbMessage) {
       return { importedMessages: 0, hasOverlap: false };
     }
 
-    const storedHistoricalMessages = historicalMessages.map((message) => toStoredMessage(message));
+    const storedHistoricalMessages = historicalMessages.map((message) =>
+      toStoredMessage(message),
+    );
 
     // Fast path: one tail comparison for the common in-sync case.
-    const latestHistorical = storedHistoricalMessages[storedHistoricalMessages.length - 1];
-    const latestIdentity = messageIdentity(latestDbMessage.role, latestDbMessage.content);
-    if (latestIdentity === messageIdentity(latestHistorical.role, latestHistorical.content)) {
-      const dbOccurrences = await this.conversationStore.countMessagesByIdentity(
-        conversationId,
-        latestDbMessage.role,
-        latestDbMessage.content,
-      );
+    const latestHistorical =
+      storedHistoricalMessages[storedHistoricalMessages.length - 1];
+    const latestIdentity = messageIdentity(
+      latestDbMessage.role,
+      latestDbMessage.content,
+    );
+    if (
+      latestIdentity ===
+      messageIdentity(latestHistorical.role, latestHistorical.content)
+    ) {
+      const dbOccurrences =
+        await this.conversationStore.countMessagesByIdentity(
+          conversationId,
+          latestDbMessage.role,
+          latestDbMessage.content,
+        );
       let historicalOccurrences = 0;
       for (const stored of storedHistoricalMessages) {
         if (messageIdentity(stored.role, stored.content) === latestIdentity) {
@@ -1612,7 +1805,10 @@ export class LcmContextEngine implements ContextEngine {
     const historicalIdentityTotals = new Map<string, number>();
     for (const stored of storedHistoricalMessages) {
       const identity = messageIdentity(stored.role, stored.content);
-      historicalIdentityTotals.set(identity, (historicalIdentityTotals.get(identity) ?? 0) + 1);
+      historicalIdentityTotals.set(
+        identity,
+        (historicalIdentityTotals.get(identity) ?? 0) + 1,
+      );
     }
 
     const historicalIdentityCountsAfterIndex = new Map<string, number>();
@@ -1635,11 +1831,12 @@ export class LcmContextEngine implements ContextEngine {
 
       let dbCountForIdentity = dbIdentityCounts.get(identity);
       if (dbCountForIdentity === undefined) {
-        dbCountForIdentity = await this.conversationStore.countMessagesByIdentity(
-          conversationId,
-          stored.role,
-          stored.content,
-        );
+        dbCountForIdentity =
+          await this.conversationStore.countMessagesByIdentity(
+            conversationId,
+            stored.role,
+            stored.content,
+          );
         dbIdentityCounts.set(identity, dbCountForIdentity);
       }
 
@@ -1663,7 +1860,11 @@ export class LcmContextEngine implements ContextEngine {
     const missingTail = historicalMessages.slice(anchorIndex + 1);
     let importedMessages = 0;
     for (const message of missingTail) {
-      const result = await this.ingestSingle({ sessionId, sessionKey: params.sessionKey, message });
+      const result = await this.ingestSingle({
+        sessionId,
+        sessionKey: params.sessionKey,
+        message,
+      });
       if (result.ingested) {
         importedMessages += 1;
       }
@@ -1677,7 +1878,12 @@ export class LcmContextEngine implements ContextEngine {
     sessionFile: string;
     sessionKey?: string;
   }): Promise<BootstrapResult> {
-    if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
+    if (
+      this.shouldIgnoreSession({
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+      })
+    ) {
       return {
         bootstrapped: false,
         importedMessages: 0,
@@ -1706,7 +1912,9 @@ export class LcmContextEngine implements ContextEngine {
           ): Promise<void> => {
             const lastMessage =
               historicalMessages.length > 0
-                ? toStoredMessage(historicalMessages[historicalMessages.length - 1]!)
+                ? toStoredMessage(
+                    historicalMessages[historicalMessages.length - 1]!,
+                  )
                 : null;
             await this.summaryStore.upsertConversationBootstrapState({
               conversationId,
@@ -1718,14 +1926,21 @@ export class LcmContextEngine implements ContextEngine {
             });
           };
 
-          const conversation = await this.conversationStore.getOrCreateConversation(params.sessionId, {
-            sessionKey: params.sessionKey,
-          });
+          const conversation =
+            await this.conversationStore.getOrCreateConversation(
+              params.sessionId,
+              {
+                sessionKey: params.sessionKey,
+              },
+            );
           const conversationId = conversation.conversationId;
-          const existingCount = await this.conversationStore.getMessageCount(conversationId);
+          const existingCount =
+            await this.conversationStore.getMessageCount(conversationId);
           const bootstrapState =
             existingCount > 0
-              ? await this.summaryStore.getConversationBootstrapState(conversationId)
+              ? await this.summaryStore.getConversationBootstrapState(
+                  conversationId,
+                )
               : null;
 
           // If the transcript file is byte-for-byte unchanged from the last
@@ -1737,12 +1952,16 @@ export class LcmContextEngine implements ContextEngine {
             bootstrapState.lastSeenMtimeMs === sessionFileMtimeMs
           ) {
             if (!conversation.bootstrappedAt) {
-              await this.conversationStore.markConversationBootstrapped(conversationId);
+              await this.conversationStore.markConversationBootstrapped(
+                conversationId,
+              );
             }
             return {
               bootstrapped: false,
               importedMessages: 0,
-              reason: conversation.bootstrappedAt ? "already bootstrapped" : "conversation already up to date",
+              reason: conversation.bootstrappedAt
+                ? "already bootstrapped"
+                : "conversation already up to date",
             };
           }
 
@@ -1753,7 +1972,8 @@ export class LcmContextEngine implements ContextEngine {
             sessionFileSize > bootstrapState.lastSeenSize &&
             sessionFileMtimeMs >= bootstrapState.lastSeenMtimeMs
           ) {
-            const latestDbMessage = await this.conversationStore.getLastMessage(conversationId);
+            const latestDbMessage =
+              await this.conversationStore.getLastMessage(conversationId);
             const latestDbHash = latestDbMessage
               ? createBootstrapEntryHash({
                   role: latestDbMessage.role,
@@ -1765,7 +1985,8 @@ export class LcmContextEngine implements ContextEngine {
               params.sessionFile,
               bootstrapState.lastProcessedOffset,
             );
-            const tailEntryMessage = readBootstrapMessageFromJsonLine(tailEntryRaw);
+            const tailEntryMessage =
+              readBootstrapMessageFromJsonLine(tailEntryRaw);
             const tailEntryHash = tailEntryMessage
               ? createBootstrapEntryHash(toStoredMessage(tailEntryMessage))
               : null;
@@ -1782,7 +2003,9 @@ export class LcmContextEngine implements ContextEngine {
               });
               if (appended.canUseAppendOnly) {
                 if (!conversation.bootstrappedAt) {
-                  await this.conversationStore.markConversationBootstrapped(conversationId);
+                  await this.conversationStore.markConversationBootstrapped(
+                    conversationId,
+                  );
                 }
 
                 let importedMessages = 0;
@@ -1817,19 +2040,25 @@ export class LcmContextEngine implements ContextEngine {
                 return {
                   bootstrapped: false,
                   importedMessages: 0,
-                  reason: conversation.bootstrappedAt ? "already bootstrapped" : "conversation already up to date",
+                  reason: conversation.bootstrappedAt
+                    ? "already bootstrapped"
+                    : "conversation already up to date",
                 };
               }
             }
           }
 
-          const historicalMessages = await readLeafPathMessages(params.sessionFile);
+          const historicalMessages = await readLeafPathMessages(
+            params.sessionFile,
+          );
 
           // First-time import path: no LCM rows yet, so seed directly from the
           // active leaf context snapshot.
           if (existingCount === 0) {
             if (historicalMessages.length === 0) {
-              await this.conversationStore.markConversationBootstrapped(conversationId);
+              await this.conversationStore.markConversationBootstrapped(
+                conversationId,
+              );
               await persistBootstrapState(conversationId, historicalMessages);
               return {
                 bootstrapped: false,
@@ -1838,7 +2067,8 @@ export class LcmContextEngine implements ContextEngine {
               };
             }
 
-            const nextSeq = (await this.conversationStore.getMaxSeq(conversationId)) + 1;
+            const nextSeq =
+              (await this.conversationStore.getMaxSeq(conversationId)) + 1;
             const bulkInput = historicalMessages.map((message, index) => {
               const stored = toStoredMessage(message);
               return {
@@ -1850,12 +2080,15 @@ export class LcmContextEngine implements ContextEngine {
               };
             });
 
-            const inserted = await this.conversationStore.createMessagesBulk(bulkInput);
+            const inserted =
+              await this.conversationStore.createMessagesBulk(bulkInput);
             await this.summaryStore.appendContextMessages(
               conversationId,
               inserted.map((record) => record.messageId),
             );
-            await this.conversationStore.markConversationBootstrapped(conversationId);
+            await this.conversationStore.markConversationBootstrapped(
+              conversationId,
+            );
             await persistBootstrapState(conversationId, historicalMessages);
 
             // Prune HEARTBEAT_OK turns from the freshly imported data
@@ -1884,7 +2117,9 @@ export class LcmContextEngine implements ContextEngine {
           });
 
           if (!conversation.bootstrappedAt) {
-            await this.conversationStore.markConversationBootstrapped(conversationId);
+            await this.conversationStore.markConversationBootstrapped(
+              conversationId,
+            );
           }
 
           if (reconcile.importedMessages > 0) {
@@ -1922,12 +2157,15 @@ export class LcmContextEngine implements ContextEngine {
     // in the DB from prior bootstrap cycles (before pruning was enabled).
     if (this.config.pruneHeartbeatOk && result.bootstrapped === false) {
       try {
-        const conversation = await this.conversationStore.getConversationForSession({
-          sessionId: params.sessionId,
-          sessionKey: params.sessionKey,
-        });
+        const conversation =
+          await this.conversationStore.getConversationForSession({
+            sessionId: params.sessionId,
+            sessionKey: params.sessionKey,
+          });
         if (conversation) {
-          const pruned = await this.pruneHeartbeatOkTurns(conversation.conversationId);
+          const pruned = await this.pruneHeartbeatOkTurns(
+            conversation.conversationId,
+          );
           if (pruned > 0) {
             console.error(
               `[lcm] bootstrap: retroactively pruned ${pruned} HEARTBEAT_OK messages from conversation ${conversation.conversationId}`,
@@ -1958,9 +2196,12 @@ export class LcmContextEngine implements ContextEngine {
     const stored = toStoredMessage(message);
 
     // Get or create conversation for this session
-    const conversation = await this.conversationStore.getOrCreateConversation(sessionId, {
-      sessionKey,
-    });
+    const conversation = await this.conversationStore.getOrCreateConversation(
+      sessionId,
+      {
+        sessionKey,
+      },
+    );
     const conversationId = conversation.conversationId;
 
     let messageForParts = message;
@@ -2014,7 +2255,10 @@ export class LcmContextEngine implements ContextEngine {
     );
 
     // Append to context items so assembler can see it
-    await this.summaryStore.appendContextMessage(conversationId, msgRecord.messageId);
+    await this.summaryStore.appendContextMessage(
+      conversationId,
+      msgRecord.messageId,
+    );
 
     return { ingested: true };
   }
@@ -2025,7 +2269,12 @@ export class LcmContextEngine implements ContextEngine {
     message: AgentMessage;
     isHeartbeat?: boolean;
   }): Promise<IngestResult> {
-    if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
+    if (
+      this.shouldIgnoreSession({
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+      })
+    ) {
       return { ingested: false };
     }
     if (this.isStatelessSession(params.sessionKey)) {
@@ -2044,7 +2293,12 @@ export class LcmContextEngine implements ContextEngine {
     messages: AgentMessage[];
     isHeartbeat?: boolean;
   }): Promise<IngestBatchResult> {
-    if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
+    if (
+      this.shouldIgnoreSession({
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+      })
+    ) {
       return { ingestedCount: 0 };
     }
     if (this.isStatelessSession(params.sessionKey)) {
@@ -2088,7 +2342,12 @@ export class LcmContextEngine implements ContextEngine {
     /** Back-compat param name. */
     legacyCompactionParams?: Record<string, unknown>;
   }): Promise<void> {
-    if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
+    if (
+      this.shouldIgnoreSession({
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+      })
+    ) {
       return;
     }
     if (this.isStatelessSession(params.sessionKey)) {
@@ -2126,7 +2385,9 @@ export class LcmContextEngine implements ContextEngine {
       return;
     }
 
-    const legacyParams = asRecord(params.runtimeContext) ?? asRecord(params.legacyCompactionParams);
+    const legacyParams =
+      asRecord(params.runtimeContext) ??
+      asRecord(params.legacyCompactionParams);
     const DEFAULT_AFTER_TURN_TOKEN_BUDGET = 128_000;
     const resolvedTokenBudget = this.resolveTokenBudget({
       tokenBudget: params.tokenBudget,
@@ -2140,10 +2401,15 @@ export class LcmContextEngine implements ContextEngine {
       );
     }
 
-    const liveContextTokens = estimateSessionTokenCountForAfterTurn(params.messages);
+    const liveContextTokens = estimateSessionTokenCountForAfterTurn(
+      params.messages,
+    );
 
     try {
-      const leafTrigger = await this.evaluateLeafTrigger(params.sessionId, params.sessionKey);
+      const leafTrigger = await this.evaluateLeafTrigger(
+        params.sessionId,
+        params.sessionKey,
+      );
       if (leafTrigger.shouldCompact) {
         this.compactLeafAsync({
           sessionId: params.sessionId,
@@ -2181,7 +2447,12 @@ export class LcmContextEngine implements ContextEngine {
     messages: AgentMessage[];
     tokenBudget?: number;
   }): Promise<AssembleResult> {
-    if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
+    if (
+      this.shouldIgnoreSession({
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+      })
+    ) {
       return {
         messages: params.messages,
         estimatedTokens: 0,
@@ -2190,10 +2461,11 @@ export class LcmContextEngine implements ContextEngine {
     try {
       this.ensureMigrated();
 
-      const conversation = await this.conversationStore.getConversationForSession({
-        sessionId: params.sessionId,
-        sessionKey: params.sessionKey,
-      });
+      const conversation =
+        await this.conversationStore.getConversationForSession({
+          sessionId: params.sessionId,
+          sessionKey: params.sessionKey,
+        });
       if (!conversation) {
         return {
           messages: params.messages,
@@ -2201,7 +2473,9 @@ export class LcmContextEngine implements ContextEngine {
         };
       }
 
-      const contextItems = await this.summaryStore.getContextItems(conversation.conversationId);
+      const contextItems = await this.summaryStore.getContextItems(
+        conversation.conversationId,
+      );
       if (contextItems.length === 0) {
         return {
           messages: params.messages,
@@ -2212,7 +2486,9 @@ export class LcmContextEngine implements ContextEngine {
       // Guard against incomplete bootstrap/coverage: if the DB only has
       // raw context items and clearly trails the current live history, keep
       // the live path to avoid dropping prompt context.
-      const hasSummaryItems = contextItems.some((item) => item.itemType === "summary");
+      const hasSummaryItems = contextItems.some(
+        (item) => item.itemType === "summary",
+      );
       if (!hasSummaryItems && contextItems.length < params.messages.length) {
         return {
           messages: params.messages,
@@ -2259,16 +2535,21 @@ export class LcmContextEngine implements ContextEngine {
   }
 
   /** Evaluate whether incremental leaf compaction should run for a session. */
-  async evaluateLeafTrigger(sessionId: string, sessionKey?: string): Promise<{
+  async evaluateLeafTrigger(
+    sessionId: string,
+    sessionKey?: string,
+  ): Promise<{
     shouldCompact: boolean;
     rawTokensOutsideTail: number;
     threshold: number;
   }> {
     this.ensureMigrated();
-    const conversation = await this.conversationStore.getConversationForSession({
-      sessionId,
-      sessionKey,
-    });
+    const conversation = await this.conversationStore.getConversationForSession(
+      {
+        sessionId,
+        sessionKey,
+      },
+    );
     if (!conversation) {
       const fallbackThreshold =
         typeof this.config.leafChunkTokens === "number" &&
@@ -2311,10 +2592,11 @@ export class LcmContextEngine implements ContextEngine {
     return this.withSessionQueue(
       this.resolveSessionQueueKey(params.sessionId, params.sessionKey),
       async () => {
-        const conversation = await this.conversationStore.getConversationForSession({
-          sessionId: params.sessionId,
-          sessionKey: params.sessionKey,
-        });
+        const conversation =
+          await this.conversationStore.getConversationForSession({
+            sessionId: params.sessionId,
+            sessionKey: params.sessionKey,
+          });
         if (!conversation) {
           return {
             ok: true,
@@ -2323,7 +2605,8 @@ export class LcmContextEngine implements ContextEngine {
           };
         }
 
-        const legacyParams = asRecord(params.runtimeContext) ?? params.legacyParams;
+        const legacyParams =
+          asRecord(params.runtimeContext) ?? params.legacyParams;
         const tokenBudget = this.resolveTokenBudget({
           tokenBudget: params.tokenBudget,
           runtimeContext: params.runtimeContext,
@@ -2394,7 +2677,12 @@ export class LcmContextEngine implements ContextEngine {
     /** Force compaction even if below threshold */
     force?: boolean;
   }): Promise<CompactResult> {
-    if (this.shouldIgnoreSession({ sessionId: params.sessionId, sessionKey: params.sessionKey })) {
+    if (
+      this.shouldIgnoreSession({
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+      })
+    ) {
       return {
         ok: true,
         compacted: false,
@@ -2415,10 +2703,11 @@ export class LcmContextEngine implements ContextEngine {
         const { sessionId, force = false } = params;
 
         // Look up conversation
-        const conversation = await this.conversationStore.getConversationForSession({
-          sessionId,
-          sessionKey: params.sessionKey,
-        });
+        const conversation =
+          await this.conversationStore.getConversationForSession({
+            sessionId,
+            sessionKey: params.sessionKey,
+          });
         if (!conversation) {
           return {
             ok: true,
@@ -2429,129 +2718,140 @@ export class LcmContextEngine implements ContextEngine {
 
         const conversationId = conversation.conversationId;
 
-      const legacyParams = asRecord(params.runtimeContext) ?? params.legacyParams;
-      const lp = legacyParams ?? {};
-      const manualCompactionRequested =
-        (
-          lp as {
-            manualCompaction?: unknown;
-          }
-        ).manualCompaction === true;
-      const forceCompaction = force || manualCompactionRequested;
-      const tokenBudget = this.resolveTokenBudget({
-        tokenBudget: params.tokenBudget,
-        runtimeContext: params.runtimeContext,
-        legacyParams,
-      });
-      if (!tokenBudget) {
-        return {
-          ok: false,
-          compacted: false,
-          reason: "missing token budget in compact params",
-        };
-      }
-
-      const { summarize, summaryModel } = await this.resolveSummarize({
-        legacyParams,
-        customInstructions: params.customInstructions,
-      });
-
-      // Evaluate whether compaction is needed (unless forced)
-      const observedTokens = this.normalizeObservedTokenCount(
-        params.currentTokenCount ??
+        const legacyParams =
+          asRecord(params.runtimeContext) ?? params.legacyParams;
+        const lp = legacyParams ?? {};
+        const manualCompactionRequested =
           (
             lp as {
-              currentTokenCount?: unknown;
+              manualCompaction?: unknown;
             }
-          ).currentTokenCount,
-      );
-      const decision =
-        observedTokens !== undefined
-          ? await this.compaction.evaluate(conversationId, tokenBudget, observedTokens)
-          : await this.compaction.evaluate(conversationId, tokenBudget);
-      const targetTokens =
-        params.compactionTarget === "threshold" ? decision.threshold : tokenBudget;
-      const liveContextStillExceedsTarget =
-        observedTokens !== undefined && observedTokens >= targetTokens;
+          ).manualCompaction === true;
+        const forceCompaction = force || manualCompactionRequested;
+        const tokenBudget = this.resolveTokenBudget({
+          tokenBudget: params.tokenBudget,
+          runtimeContext: params.runtimeContext,
+          legacyParams,
+        });
+        if (!tokenBudget) {
+          return {
+            ok: false,
+            compacted: false,
+            reason: "missing token budget in compact params",
+          };
+        }
 
-      if (!forceCompaction && !decision.shouldCompact) {
-        return {
-          ok: true,
-          compacted: false,
-          reason: "below threshold",
-          result: {
-            tokensBefore: decision.currentTokens,
-          },
-        };
-      }
-
-      const useSweep =
-        manualCompactionRequested || forceCompaction || params.compactionTarget === "threshold";
-      if (useSweep) {
-        const sweepResult = await this.compaction.compactFullSweep({
-          conversationId,
-          tokenBudget,
-          summarize,
-          force: forceCompaction,
-          hardTrigger: false,
-          summaryModel,
+        const { summarize, summaryModel } = await this.resolveSummarize({
+          legacyParams,
+          customInstructions: params.customInstructions,
         });
 
+        // Evaluate whether compaction is needed (unless forced)
+        const observedTokens = this.normalizeObservedTokenCount(
+          params.currentTokenCount ??
+            (
+              lp as {
+                currentTokenCount?: unknown;
+              }
+            ).currentTokenCount,
+        );
+        const decision =
+          observedTokens !== undefined
+            ? await this.compaction.evaluate(
+                conversationId,
+                tokenBudget,
+                observedTokens,
+              )
+            : await this.compaction.evaluate(conversationId, tokenBudget);
+        const targetTokens =
+          params.compactionTarget === "threshold"
+            ? decision.threshold
+            : tokenBudget;
+        const liveContextStillExceedsTarget =
+          observedTokens !== undefined && observedTokens >= targetTokens;
+
+        if (!forceCompaction && !decision.shouldCompact) {
+          return {
+            ok: true,
+            compacted: false,
+            reason: "below threshold",
+            result: {
+              tokensBefore: decision.currentTokens,
+            },
+          };
+        }
+
+        const useSweep =
+          manualCompactionRequested ||
+          forceCompaction ||
+          params.compactionTarget === "threshold";
+        if (useSweep) {
+          const sweepResult = await this.compaction.compactFullSweep({
+            conversationId,
+            tokenBudget,
+            summarize,
+            force: forceCompaction,
+            hardTrigger: false,
+            summaryModel,
+          });
+
+          return {
+            ok: sweepResult.actionTaken || !liveContextStillExceedsTarget,
+            compacted: sweepResult.actionTaken,
+            reason: sweepResult.actionTaken
+              ? "compacted"
+              : manualCompactionRequested
+                ? "nothing to compact"
+                : liveContextStillExceedsTarget
+                  ? "live context still exceeds target"
+                  : "already under target",
+            result: {
+              tokensBefore: decision.currentTokens,
+              tokensAfter: sweepResult.tokensAfter,
+              details: {
+                rounds: sweepResult.actionTaken ? 1 : 0,
+                targetTokens,
+              },
+            },
+          };
+        }
+
+        // When forced, use the token budget as target
+        const convergenceTargetTokens = forceCompaction
+          ? tokenBudget
+          : params.compactionTarget === "threshold"
+            ? decision.threshold
+            : tokenBudget;
+
+        const compactResult = await this.compaction.compactUntilUnder({
+          conversationId,
+          tokenBudget,
+          targetTokens: convergenceTargetTokens,
+          ...(observedTokens !== undefined
+            ? { currentTokens: observedTokens }
+            : {}),
+          summarize,
+          summaryModel,
+        });
+        const didCompact = compactResult.rounds > 0;
+
         return {
-          ok: sweepResult.actionTaken || !liveContextStillExceedsTarget,
-          compacted: sweepResult.actionTaken,
-          reason: sweepResult.actionTaken
-            ? "compacted"
-            : manualCompactionRequested
-              ? "nothing to compact"
-              : liveContextStillExceedsTarget
-                ? "live context still exceeds target"
-                : "already under target",
+          ok: compactResult.success,
+          compacted: didCompact,
+          reason: compactResult.success
+            ? didCompact
+              ? "compacted"
+              : "already under target"
+            : "could not reach target",
           result: {
             tokensBefore: decision.currentTokens,
-            tokensAfter: sweepResult.tokensAfter,
+            tokensAfter: compactResult.finalTokens,
             details: {
-              rounds: sweepResult.actionTaken ? 1 : 0,
-              targetTokens,
+              rounds: compactResult.rounds,
+              targetTokens: convergenceTargetTokens,
             },
           },
         };
-      }
-
-      // When forced, use the token budget as target
-      const convergenceTargetTokens = forceCompaction
-        ? tokenBudget
-        : params.compactionTarget === "threshold"
-          ? decision.threshold
-          : tokenBudget;
-
-      const compactResult = await this.compaction.compactUntilUnder({
-        conversationId,
-        tokenBudget,
-        targetTokens: convergenceTargetTokens,
-        ...(observedTokens !== undefined ? { currentTokens: observedTokens } : {}),
-        summarize,
-        summaryModel,
-      });
-      const didCompact = compactResult.rounds > 0;
-
-      return {
-        ok: compactResult.success,
-        compacted: didCompact,
-        reason: compactResult.success
-          ? didCompact
-            ? "compacted"
-            : "already under target"
-          : "could not reach target",
-        result: {
-          tokensBefore: decision.currentTokens,
-          tokensAfter: compactResult.finalTokens,
-          details: {
-            rounds: compactResult.rounds,
-            targetTokens: convergenceTargetTokens,
-          },
-        },
-      };
       },
     );
   }
@@ -2562,10 +2862,10 @@ export class LcmContextEngine implements ContextEngine {
     ttlMs?: number;
   }): Promise<SubagentSpawnPreparation | undefined> {
     if (
-      this.shouldIgnoreSession({ sessionKey: params.parentSessionKey })
-      || this.shouldIgnoreSession({ sessionKey: params.childSessionKey })
-      || this.isStatelessSession(params.parentSessionKey)
-      || this.isStatelessSession(params.childSessionKey)
+      this.shouldIgnoreSession({ sessionKey: params.parentSessionKey }) ||
+      this.shouldIgnoreSession({ sessionKey: params.childSessionKey }) ||
+      this.isStatelessSession(params.parentSessionKey) ||
+      this.isStatelessSession(params.childSessionKey)
     ) {
       return undefined;
     }
@@ -2577,13 +2877,16 @@ export class LcmContextEngine implements ContextEngine {
       return undefined;
     }
 
-    const conversationId = await this.resolveConversationIdForSessionKey(parentSessionKey);
+    const conversationId =
+      await this.resolveConversationIdForSessionKey(parentSessionKey);
     if (typeof conversationId !== "number") {
       return undefined;
     }
 
     const ttlMs =
-      typeof params.ttlMs === "number" && Number.isFinite(params.ttlMs) && params.ttlMs > 0
+      typeof params.ttlMs === "number" &&
+      Number.isFinite(params.ttlMs) &&
+      params.ttlMs > 0
         ? Math.floor(params.ttlMs)
         : undefined;
 
@@ -2595,7 +2898,9 @@ export class LcmContextEngine implements ContextEngine {
 
     const childTokenCap = parentGrant
       ? Math.min(
-          getRuntimeExpansionAuthManager().getRemainingTokenBudget(parentGrantId!) ?? this.config.maxExpandTokens,
+          getRuntimeExpansionAuthManager().getRemainingTokenBudget(
+            parentGrantId!,
+          ) ?? this.config.maxExpandTokens,
           this.config.maxExpandTokens,
         )
       : this.config.maxExpandTokens;
@@ -2620,7 +2925,9 @@ export class LcmContextEngine implements ContextEngine {
 
     return {
       rollback: () => {
-        revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true });
+        revokeDelegatedExpansionGrantForSession(childSessionKey, {
+          removeBinding: true,
+        });
       },
     };
   }
@@ -2630,8 +2937,8 @@ export class LcmContextEngine implements ContextEngine {
     reason: SubagentEndReason;
   }): Promise<void> {
     if (
-      this.shouldIgnoreSession({ sessionKey: params.childSessionKey })
-      || this.isStatelessSession(params.childSessionKey)
+      this.shouldIgnoreSession({ sessionKey: params.childSessionKey }) ||
+      this.isStatelessSession(params.childSessionKey)
     ) {
       return;
     }
@@ -2642,7 +2949,9 @@ export class LcmContextEngine implements ContextEngine {
 
     switch (params.reason) {
       case "deleted":
-        revokeDelegatedExpansionGrantForSession(childSessionKey, { removeBinding: true });
+        revokeDelegatedExpansionGrantForSession(childSessionKey, {
+          removeBinding: true,
+        });
         break;
       case "completed":
         revokeDelegatedExpansionGrantForSession(childSessionKey);
@@ -2693,7 +3002,8 @@ export class LcmContextEngine implements ContextEngine {
    * Returns the number of messages deleted.
    */
   private async pruneHeartbeatOkTurns(conversationId: number): Promise<number> {
-    const allMessages = await this.conversationStore.getMessages(conversationId);
+    const allMessages =
+      await this.conversationStore.getMessages(conversationId);
     if (allMessages.length === 0) {
       return 0;
     }
@@ -2746,7 +3056,9 @@ export class LcmContextEngine implements ContextEngine {
     return this.conversationStore.deleteMessages(uniqueIds);
   }
 
-  private async turnHasToolInteractions(messageIds: number[]): Promise<boolean> {
+  private async turnHasToolInteractions(
+    messageIds: number[],
+  ): Promise<boolean> {
     for (const messageId of messageIds) {
       const parts = await this.conversationStore.getMessageParts(messageId);
       if (parts.some(messagePartIndicatesToolUsage)) {
@@ -2771,7 +3083,10 @@ function messagePartIndicatesToolUsage(part: MessagePartRecord): boolean {
   if (typeof part.metadata === "string" && part.metadata.length > 0) {
     try {
       const meta = JSON.parse(part.metadata) as Record<string, unknown>;
-      if (typeof meta.rawType === "string" && TOOL_RAW_TYPES.has(meta.rawType)) {
+      if (
+        typeof meta.rawType === "string" &&
+        TOOL_RAW_TYPES.has(meta.rawType)
+      ) {
         return true;
       }
     } catch {

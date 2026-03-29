@@ -1,3 +1,4 @@
+export type { IConversationStore, ISummaryStore } from "./types.js";
 export { ConversationStore } from "./conversation-store.js";
 export type {
   ConversationId,

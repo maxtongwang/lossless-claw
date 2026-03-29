@@ -1,10 +1,8 @@
-/**
- * Compatibility bridge for plugin-sdk context-engine symbols.
- *
- * This module intentionally exports only stable plugin-sdk surface area.
- */
+// Compatibility bridge — re-exports context engine types from local definitions.
+// Upstream lossless-claw exports these from openclaw/plugin-sdk; our fork inlines them.
 
 export type {
+  AgentMessage,
   ContextEngine,
   ContextEngineInfo,
   AssembleResult,
@@ -14,9 +12,14 @@ export type {
   BootstrapResult,
   SubagentSpawnPreparation,
   SubagentEndReason,
-} from "openclaw/plugin-sdk";
+} from "./context-engine-types.js";
 
-export {
-  registerContextEngine,
-  type ContextEngineFactory,
-} from "openclaw/plugin-sdk";
+// registerContextEngine and ContextEngineFactory are OpenClaw plugin registration —
+// not needed when using the engine directly. Stubbed for import compatibility.
+export type ContextEngineFactory = (deps: unknown) => unknown;
+export function registerContextEngine(
+  _id: string,
+  _factory: ContextEngineFactory,
+): void {
+  // no-op — OttoRuntime creates the engine directly, not through plugin registration
+}

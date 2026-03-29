@@ -1,13 +1,15 @@
-import type { ContextEngine } from "openclaw/plugin-sdk";
+import type { AgentMessage } from "./context-engine-types.js";
 import { sanitizeToolUseResultPairing } from "./transcript-repair.js";
 import type {
   ConversationStore,
   MessagePartRecord,
   MessageRole,
 } from "./store/conversation-store.js";
-import type { SummaryStore, ContextItemRecord, SummaryRecord } from "./store/summary-store.js";
-
-type AgentMessage = Parameters<ContextEngine["ingest"]>[0]["message"];
+import type {
+  SummaryStore,
+  ContextItemRecord,
+  SummaryRecord,
+} from "./store/summary-store.js";
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -40,7 +42,10 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-type SummaryPromptSignal = Pick<SummaryRecord, "kind" | "depth" | "descendantCount">;
+type SummaryPromptSignal = Pick<
+  SummaryRecord,
+  "kind" | "depth" | "descendantCount"
+>;
 
 /**
  * Build LCM usage guidance for the runtime system prompt.
@@ -48,13 +53,20 @@ type SummaryPromptSignal = Pick<SummaryRecord, "kind" | "depth" | "descendantCou
  * Guidance is emitted only when summaries are present in assembled context.
  * Depth-aware: minimal for shallow compaction, full guidance for deep trees.
  */
-function buildSystemPromptAddition(summarySignals: SummaryPromptSignal[]): string | undefined {
+function buildSystemPromptAddition(
+  summarySignals: SummaryPromptSignal[],
+): string | undefined {
   if (summarySignals.length === 0) {
     return undefined;
   }
 
-  const maxDepth = summarySignals.reduce((deepest, signal) => Math.max(deepest, signal.depth), 0);
-  const condensedCount = summarySignals.filter((signal) => signal.kind === "condensed").length;
+  const maxDepth = summarySignals.reduce(
+    (deepest, signal) => Math.max(deepest, signal.depth),
+    0,
+  );
+  const condensedCount = summarySignals.filter(
+    (signal) => signal.kind === "condensed",
+  ).length;
   const heavilyCompacted = maxDepth >= 2 || condensedCount >= 2;
 
   const sections: string[] = [];
@@ -73,11 +85,11 @@ function buildSystemPromptAddition(summarySignals: SummaryPromptSignal[]): strin
     "3. `lcm_expand_query` — deep recall: spawns bounded sub-agent, expands DAG, returns answer with cited summary IDs (~120s, don't ration it)",
     "",
     "**`lcm_expand_query` usage** — two patterns (always requires `prompt`):",
-    "- With IDs: `lcm_expand_query(summaryIds: [\"sum_xxx\"], prompt: \"What config changes were discussed?\")`",
-    "- With search: `lcm_expand_query(query: \"database migration\", prompt: \"What strategy was decided?\")`",
+    '- With IDs: `lcm_expand_query(summaryIds: ["sum_xxx"], prompt: "What config changes were discussed?")`',
+    '- With search: `lcm_expand_query(query: "database migration", prompt: "What strategy was decided?")`',
     "- Optional: `maxTokens` (default 2000), `conversationId`, `allConversations: true`",
     "",
-    "**Summaries include \"Expand for details about:\" footers** listing compressed specifics. Use `lcm_expand_query` with that summary's ID to retrieve them.",
+    '**Summaries include "Expand for details about:" footers** listing compressed specifics. Use `lcm_expand_query` with that summary\'s ID to retrieve them.',
   );
 
   // Precision/evidence rules — always present but stronger when heavily compacted
@@ -180,7 +192,10 @@ function parseStoredValue(value: string | null): unknown {
   return parsed !== undefined ? parsed : value;
 }
 
-function reasoningBlockFromPart(part: MessagePartRecord, rawType?: string): unknown {
+function reasoningBlockFromPart(
+  part: MessagePartRecord,
+  rawType?: string,
+): unknown {
   const type = rawType === "thinking" ? "thinking" : "reasoning";
   if (typeof part.textContent === "string" && part.textContent.length > 0) {
     return type === "thinking"
@@ -196,7 +211,9 @@ function reasoningBlockFromPart(part: MessagePartRecord, rawType?: string): unkn
  * into `{type:"thinking", thinking:"", thinkingSignature:"{…}"}`.
  * When we reassemble for the OpenAI provider we need the original back.
  */
-function tryRestoreOpenAIReasoning(raw: Record<string, unknown>): Record<string, unknown> | null {
+function tryRestoreOpenAIReasoning(
+  raw: Record<string, unknown>,
+): Record<string, unknown> | null {
   if (raw.type !== "thinking") return null;
   const sig = raw.thinkingSignature;
   if (typeof sig !== "string" || !sig.startsWith("{")) return null;
@@ -212,7 +229,10 @@ function tryRestoreOpenAIReasoning(raw: Record<string, unknown>): Record<string,
 }
 
 /** @internal Exported for testing only. */
-export function toolCallBlockFromPart(part: MessagePartRecord, rawType?: string): unknown {
+export function toolCallBlockFromPart(
+  part: MessagePartRecord,
+  rawType?: string,
+): unknown {
   const type =
     rawType === "function_call" ||
     rawType === "functionCall" ||
@@ -268,7 +288,9 @@ export function toolResultBlockFromPart(
   raw?: Record<string, unknown>,
 ): unknown {
   const type =
-    rawType === "function_call_output" || rawType === "toolResult" || rawType === "tool_result"
+    rawType === "function_call_output" ||
+    rawType === "toolResult" ||
+    rawType === "tool_result"
       ? rawType
       : "tool_result";
   const output = parseStoredValue(part.toolOutput);
@@ -343,7 +365,9 @@ export function blockFromPart(part: MessagePartRecord): unknown {
   if (metadata.raw && typeof metadata.raw === "object") {
     // If this is an OpenClaw-normalised OpenAI reasoning block, restore the original
     // OpenAI format so the Responses API gets the {type:"reasoning", id:"rs_…"} it expects.
-    const restored = tryRestoreOpenAIReasoning(metadata.raw as Record<string, unknown>);
+    const restored = tryRestoreOpenAIReasoning(
+      metadata.raw as Record<string, unknown>,
+    );
     if (restored) return restored;
 
     // Don't return raw for tool call/result blocks — they need to go through
@@ -351,7 +375,9 @@ export function blockFromPart(part: MessagePartRecord): unknown {
     // arguments (stringify if object) and format for the target provider.
     // Returning raw here causes arguments to be passed as a JS object instead
     // of a JSON string, which breaks xAI/OpenAI Chat Completions API (422).
-    const rawType = (metadata.raw as Record<string, unknown>).type as string | undefined;
+    const rawType = (metadata.raw as Record<string, unknown>).type as
+      | string
+      | undefined;
     const isToolBlock =
       rawType === "toolCall" ||
       rawType === "tool_use" ||
@@ -393,7 +419,8 @@ export function blockFromPart(part: MessagePartRecord): unknown {
     if (part.toolInput == null || part.toolInput === "") {
       const rawArgs = rawRecord.arguments ?? rawRecord.input;
       if (rawArgs !== undefined) {
-        part.toolInput = typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs);
+        part.toolInput =
+          typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs);
       }
     }
   }
@@ -402,7 +429,10 @@ export function blockFromPart(part: MessagePartRecord): unknown {
     return reasoningBlockFromPart(part, metadata.rawType);
   }
   if (part.partType === "tool") {
-    if (metadata.originalRole === "toolResult" || metadata.rawType === "function_call_output") {
+    if (
+      metadata.originalRole === "toolResult" ||
+      metadata.rawType === "function_call_output"
+    ) {
       return toolResultBlockFromPart(
         part,
         metadata.rawType,
@@ -493,14 +523,18 @@ function pickToolCallId(parts: MessagePartRecord[]): string | undefined {
       continue;
     }
     const metadataToolCallId = (decoded as { toolCallId?: unknown }).toolCallId;
-    if (typeof metadataToolCallId === "string" && metadataToolCallId.length > 0) {
+    if (
+      typeof metadataToolCallId === "string" &&
+      metadataToolCallId.length > 0
+    ) {
       return metadataToolCallId;
     }
     const raw = (decoded as { raw?: unknown }).raw;
     if (!raw || typeof raw !== "object") {
       continue;
     }
-    const maybe = (raw as { toolCallId?: unknown; tool_call_id?: unknown }).toolCallId;
+    const maybe = (raw as { toolCallId?: unknown; tool_call_id?: unknown })
+      .toolCallId;
     if (typeof maybe === "string" && maybe.length > 0) {
       return maybe;
     }
@@ -593,14 +627,18 @@ async function formatSummaryContent(
     `descendant_count="${summary.descendantCount}"`,
   ];
   if (summary.earliestAt) {
-    attributes.push(`earliest_at="${formatDateForAttribute(summary.earliestAt, timezone)}"`);
+    attributes.push(
+      `earliest_at="${formatDateForAttribute(summary.earliestAt, timezone)}"`,
+    );
   }
   if (summary.latestAt) {
-    attributes.push(`latest_at="${formatDateForAttribute(summary.latestAt, timezone)}"`);
+    attributes.push(
+      `latest_at="${formatDateForAttribute(summary.latestAt, timezone)}"`,
+    );
   }
 
   const lines: string[] = [];
-  lines.push(`<summary ${attributes.join(" ")}>`); 
+  lines.push(`<summary ${attributes.join(" ")}>`);
 
   // For condensed summaries, include parent references.
   if (summary.kind === "condensed") {
@@ -660,7 +698,8 @@ export class ContextAssembler {
     const freshTailCount = input.freshTailCount ?? 8;
 
     // Step 1: Get all context items ordered by ordinal
-    const contextItems = await this.summaryStore.getContextItems(conversationId);
+    const contextItems =
+      await this.summaryStore.getContextItems(conversationId);
 
     if (contextItems.length === 0) {
       return {
@@ -713,7 +752,10 @@ export class ContextAssembler {
     // older items as the budget allows; once we exceed the budget we start
     // dropping the *oldest* items. To achieve this we first compute the
     // total, then trim from the front.
-    const evictableTotalTokens = evictable.reduce((sum, it) => sum + it.tokens, 0);
+    const evictableTotalTokens = evictable.reduce(
+      (sum, it) => sum + it.tokens,
+      0,
+    );
 
     if (evictableTotalTokens <= remainingBudget) {
       // Everything fits
@@ -753,7 +795,9 @@ export class ContextAssembler {
       if (msg?.role === "assistant" && typeof msg.content === "string") {
         rawMessages[i] = {
           ...msg,
-          content: [{ type: "text", text: msg.content }] as unknown as typeof msg.content,
+          content: [
+            { type: "text", text: msg.content },
+          ] as unknown as typeof msg.content,
         } as typeof msg;
       }
     }
@@ -778,7 +822,9 @@ export class ContextAssembler {
    *
    * Items that cannot be resolved (e.g. deleted message) are silently skipped.
    */
-  private async resolveItems(contextItems: ContextItemRecord[]): Promise<ResolvedItem[]> {
+  private async resolveItems(
+    contextItems: ContextItemRecord[],
+  ): Promise<ResolvedItem[]> {
     const resolved: ResolvedItem[] = [];
 
     for (const item of contextItems) {
@@ -794,7 +840,9 @@ export class ContextAssembler {
   /**
    * Resolve a single context item.
    */
-  private async resolveItem(item: ContextItemRecord): Promise<ResolvedItem | null> {
+  private async resolveItem(
+    item: ContextItemRecord,
+  ): Promise<ResolvedItem | null> {
     if (item.itemType === "message" && item.messageId != null) {
       return this.resolveMessageItem(item);
     }
@@ -810,7 +858,9 @@ export class ContextAssembler {
   /**
    * Resolve a context item that references a raw message.
    */
-  private async resolveMessageItem(item: ContextItemRecord): Promise<ResolvedItem | null> {
+  private async resolveMessageItem(
+    item: ContextItemRecord,
+  ): Promise<ResolvedItem | null> {
     const msg = await this.conversationStore.getMessageById(item.messageId!);
     if (!msg) {
       return null;
@@ -820,7 +870,9 @@ export class ContextAssembler {
     const roleFromStore = toRuntimeRole(msg.role, parts);
     const isToolResult = roleFromStore === "toolResult";
     const toolCallId = isToolResult ? pickToolCallId(parts) : undefined;
-    const toolName = isToolResult ? (pickToolName(parts) ?? "unknown") : undefined;
+    const toolName = isToolResult
+      ? (pickToolName(parts) ?? "unknown")
+      : undefined;
     const toolIsError = isToolResult ? pickToolIsError(parts) : undefined;
     // Tool results without a call id cannot be serialized for Anthropic-compatible APIs.
     // This happens for legacy/bootstrap rows that have role=tool but no message_parts.
@@ -829,7 +881,9 @@ export class ContextAssembler {
       isToolResult && !toolCallId ? "assistant" : roleFromStore;
     const content = contentFromParts(parts, role, msg.content);
     const contentText =
-      typeof content === "string" ? content : (JSON.stringify(content) ?? msg.content);
+      typeof content === "string"
+        ? content
+        : (JSON.stringify(content) ?? msg.content);
     const tokenCount = estimateTokens(contentText);
 
     // Cast: these are reconstructed from DB storage, not live agent messages,
@@ -861,7 +915,9 @@ export class ContextAssembler {
               content,
               ...(toolCallId ? { toolCallId } : {}),
               ...(toolName ? { toolName } : {}),
-              ...(role === "toolResult" && toolIsError !== undefined ? { isError: toolIsError } : {}),
+              ...(role === "toolResult" && toolIsError !== undefined
+                ? { isError: toolIsError }
+                : {}),
             } as AgentMessage),
       tokens: tokenCount,
       isMessage: true,
@@ -872,13 +928,19 @@ export class ContextAssembler {
    * Resolve a context item that references a summary.
    * Summaries are presented as user messages with a structured XML wrapper.
    */
-  private async resolveSummaryItem(item: ContextItemRecord): Promise<ResolvedItem | null> {
+  private async resolveSummaryItem(
+    item: ContextItemRecord,
+  ): Promise<ResolvedItem | null> {
     const summary = await this.summaryStore.getSummary(item.summaryId!);
     if (!summary) {
       return null;
     }
 
-    const content = await formatSummaryContent(summary, this.summaryStore, this.timezone);
+    const content = await formatSummaryContent(
+      summary,
+      this.summaryStore,
+      this.timezone,
+    );
     const tokens = estimateTokens(content);
 
     // Cast: summaries are synthetic user messages without full AgentMessage metadata
