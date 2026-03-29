@@ -1154,7 +1154,7 @@ export class LcmContextEngine implements ContextEngine {
       });
     }
 
-    if (!this.fts5Available) {
+    if (!this.fts5Available && !isCustomStores) {
       this.deps.log.warn(
         "[lcm] FTS5 unavailable in the current Node runtime; full_text search will fall back to LIKE and indexing is disabled",
       );
