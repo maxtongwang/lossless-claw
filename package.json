@@ -23,7 +23,8 @@
     "version-packages": "changeset version"
   },
   "files": [
-    "dist/",
+    "index.ts",
+    "src/**/*.ts",
     "skills/",
     "openclaw.plugin.json",
     "docs/",
