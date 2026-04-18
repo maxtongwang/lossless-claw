@@ -97,15 +97,48 @@ jobs:
           echo "conflict=$CONFLICT" >> "$GITHUB_OUTPUT"
 
           if [ "$CONFLICT" = "true" ]; then
-            echo "::error::Cherry-pick conflict — manual resolution needed"
+            echo "::warning::Cherry-pick conflict — manual resolution needed for $TAG"
             echo "Manual steps:"
             echo "  git checkout -b sync/upstream-$TAG $TAG"
             echo "  git cherry-pick <our-commits> (resolve conflicts)"
             echo "  git push origin sync/upstream-$TAG"
-            exit 1
+            # Exit 0 — conflict is informational, not a CI failure.
+            # The issue creation step below handles notification.
+            exit 0
           fi
 
           git push origin "$BRANCH"
+
+      - name: File conflict issue
+        if: steps.check.outputs.skip == 'false' && steps.sync.outputs.conflict == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.latest.outputs.tag }}"
+          EXISTING=$(gh issue list --label "upstream-sync" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body "Still conflicting on upstream ${TAG} ($(date -u +%Y-%m-%d)). Manual resolution needed."
+          else
+            gh issue create \
+              --title "sync: cherry-pick conflict on upstream ${TAG}" \
+              --label "upstream-sync" \
+              --body "$(cat <<EOF
+          Cherry-pick of fork DI commits conflicts with upstream ${TAG}.
+
+          **Manual steps:**
+          \`\`\`bash
+          cd ~/Github/lossless-claw
+          git fetch upstream --tags
+          git checkout -b sync/upstream-${TAG} ${TAG}
+          git cherry-pick <fork-commits>  # resolve conflicts
+          git push origin sync/upstream-${TAG}
+          gh pr create --base main --head sync/upstream-${TAG}
+          \`\`\`
+
+          This issue auto-closes when the sync workflow succeeds.
+          EOF
+          )"
+          fi
 
       - name: Create PR
         if: steps.check.outputs.skip == 'false' && steps.sync.outputs.conflict == 'false'
@@ -114,6 +147,13 @@ jobs:
         run: |
           TAG="${{ steps.latest.outputs.tag }}"
           BRANCH="sync/upstream-${TAG}"
+
+          # Close any open sync conflict issue
+          EXISTING=$(gh issue list --label "upstream-sync" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --comment "Resolved — sync to ${TAG} succeeded."
+          fi
+
           gh pr create \
             --title "sync: rebase fork onto upstream ${TAG}" \
             --body "$(cat <<'EOF'
