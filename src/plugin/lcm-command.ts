@@ -6,7 +6,22 @@ import type { LcmConfig } from "../db/config.js";
 import type { RotateSessionStorageWithBackupResult } from "../engine.js";
 import type { LcmSummarizeFn } from "../summarize.js";
 import type { LcmDependencies } from "../types.js";
-import type { OpenClawPluginCommandDefinition, PluginCommandContext } from "openclaw/plugin-sdk";
+// Minimal shapes for plugin command registration.
+// Inlined to decouple from openclaw/plugin-sdk.
+type PluginCommandContext = {
+  sessionId?: string;
+  sessionKey?: string;
+  args: string;
+  [key: string]: unknown;
+};
+type OpenClawPluginCommandDefinition = {
+  name: string;
+  nativeNames?: Record<string, string>;
+  nativeProgressMessages?: Record<string, string>;
+  description: string;
+  acceptsArgs?: boolean;
+  handler: (ctx: PluginCommandContext) => Promise<{ text: string }>;
+};
 import { applyScopedDoctorRepair } from "./lcm-doctor-apply.js";
 import { createLcmDatabaseBackup } from "./lcm-db-backup.js";
 import { describeLogError } from "../lcm-log.js";

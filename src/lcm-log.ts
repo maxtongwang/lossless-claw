@@ -1,5 +1,28 @@
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import type { LcmDependencies } from "./types.js";
+
+// Minimal shape of OpenClawPluginApi used by createLcmLogger.
+// Inlined to decouple from openclaw/plugin-sdk.
+type OpenClawPluginApi = {
+  logger: {
+    info: (msg: string) => void;
+    warn: (msg: string) => void;
+    error: (msg: string) => void;
+    debug?: (msg: string) => void;
+  };
+  runtime: {
+    logging?: {
+      getChildLogger?: (opts: Record<string, string>) =>
+        | {
+            info: (msg: string) => void;
+            warn: (msg: string) => void;
+            error: (msg: string) => void;
+            debug?: (msg: string) => void;
+          }
+        | undefined;
+    };
+  };
+  [key: string]: unknown;
+};
 
 export type LcmLogger = LcmDependencies["log"];
 
@@ -18,7 +41,9 @@ export function describeLogError(error: unknown): string {
 
 /** Create the LCM logger, preferring OpenClaw's file-backed runtime logger. */
 export function createLcmLogger(api: OpenClawPluginApi): LcmLogger {
-  const runtimeLogger = api.runtime.logging?.getChildLogger?.({ plugin: "lossless-claw" });
+  const runtimeLogger = api.runtime.logging?.getChildLogger?.({
+    plugin: "lossless-claw",
+  });
   if (runtimeLogger) {
     return {
       info: (message) => runtimeLogger.info(message),

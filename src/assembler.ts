@@ -1,14 +1,16 @@
-import type { ContextEngine } from "openclaw/plugin-sdk";
+import type { AgentMessage } from "./context-engine-types.js";
 import { sanitizeToolUseResultPairing } from "./transcript-repair.js";
 import type {
   ConversationStore,
   MessagePartRecord,
   MessageRole,
 } from "./store/conversation-store.js";
-import type { SummaryStore, ContextItemRecord, SummaryRecord } from "./store/summary-store.js";
+import type {
+  SummaryStore,
+  ContextItemRecord,
+  SummaryRecord,
+} from "./store/summary-store.js";
 import { estimateTokens } from "./estimate-tokens.js";
-
-type AgentMessage = Parameters<ContextEngine["ingest"]>[0]["message"];
 
 const TOOL_CALL_TYPES = new Set([
   "toolCall",
@@ -49,8 +51,10 @@ export interface AssembleContextResult {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-
-type SummaryPromptSignal = Pick<SummaryRecord, "kind" | "depth" | "descendantCount">;
+type SummaryPromptSignal = Pick<
+  SummaryRecord,
+  "kind" | "depth" | "descendantCount"
+>;
 
 /**
  * Build dynamic prompt guidance for compacted session context.
@@ -59,13 +63,20 @@ type SummaryPromptSignal = Pick<SummaryRecord, "kind" | "depth" | "descendantCou
  * Static recall policy lives in the plugin prompt hook so this addition
  * remains session-specific and reflects only the current compaction state.
  */
-function buildSystemPromptAddition(summarySignals: SummaryPromptSignal[]): string | undefined {
+function buildSystemPromptAddition(
+  summarySignals: SummaryPromptSignal[]
+): string | undefined {
   if (summarySignals.length === 0) {
     return undefined;
   }
 
-  const maxDepth = summarySignals.reduce((deepest, signal) => Math.max(deepest, signal.depth), 0);
-  const condensedCount = summarySignals.filter((signal) => signal.kind === "condensed").length;
+  const maxDepth = summarySignals.reduce(
+    (deepest, signal) => Math.max(deepest, signal.depth),
+    0
+  );
+  const condensedCount = summarySignals.filter(
+    (signal) => signal.kind === "condensed"
+  ).length;
   const heavilyCompacted = maxDepth >= 2 || condensedCount >= 2;
 
   const sections: string[] = [];
@@ -78,7 +89,7 @@ function buildSystemPromptAddition(summarySignals: SummaryPromptSignal[]): strin
     "",
     "Treat summaries as compressed recall cues rather than proof of exact wording or exact values.",
     "",
-    "If a summary includes an \"Expand for details about:\" footer, use it as a cue to expand before asserting specifics.",
+    'If a summary includes an "Expand for details about:" footer, use it as a cue to expand before asserting specifics.'
   );
 
   // Precision/evidence rules — always present but stronger when heavily compacted.
@@ -96,7 +107,7 @@ function buildSystemPromptAddition(summarySignals: SummaryPromptSignal[]): strin
       "",
       "Keep raw summary IDs in tool context for follow-up; do not include them in the user-facing answer unless the user asks for sources or IDs.",
       "",
-      "`lcm_grep` tips: prefer `mode: \"full_text\"` for keyword/topic lookup, quote exact multi-word phrases, use `sort: \"relevance\"` for older-topic retrieval, and use `sort: \"hybrid\"` when recency should still influence ranking.",
+      '`lcm_grep` tips: prefer `mode: "full_text"` for keyword/topic lookup, quote exact multi-word phrases, use `sort: "relevance"` for older-topic retrieval, and use `sort: "hybrid"` when recency should still influence ranking.',
       "`lcm_expand_query(query: ...)` uses the same FTS5 full-text search rules as `lcm_grep`: terms are ANDed by default, so extra query words narrow results. Keep `query` to 1-3 distinctive terms or a quoted phrase, and put the natural-language question in `prompt`.",
       "",
       "**Uncertainty checklist (run before answering):**",
@@ -107,13 +118,13 @@ function buildSystemPromptAddition(summarySignals: SummaryPromptSignal[]): strin
       "",
       "If yes to any item, expand first or explicitly say that you need to expand.",
       "",
-      "Do not guess exact commands, SHAs, file paths, timestamps, config values, or causal claims from condensed summaries. Expand first or explicitly say that you need to expand.",
+      "Do not guess exact commands, SHAs, file paths, timestamps, config values, or causal claims from condensed summaries. Expand first or explicitly say that you need to expand."
     );
   } else {
     sections.push(
       "",
       "For exact commands, SHAs, paths, timestamps, config values, or causal chains, expand for details before answering.",
-      "State uncertainty instead of guessing from compressed summaries.",
+      "State uncertainty instead of guessing from compressed summaries."
     );
   }
 
@@ -189,7 +200,10 @@ function parseStoredValue(value: string | null): unknown {
   return parsed !== undefined ? parsed : value;
 }
 
-function reasoningBlockFromPart(part: MessagePartRecord, rawType?: string): unknown {
+function reasoningBlockFromPart(
+  part: MessagePartRecord,
+  rawType?: string
+): unknown {
   const type = rawType === "thinking" ? "thinking" : "reasoning";
   if (typeof part.textContent === "string" && part.textContent.length > 0) {
     return type === "thinking"
@@ -205,7 +219,9 @@ function reasoningBlockFromPart(part: MessagePartRecord, rawType?: string): unkn
  * into `{type:"thinking", thinking:"", thinkingSignature:"{…}"}`.
  * When we reassemble for the OpenAI provider we need the original back.
  */
-function tryRestoreOpenAIReasoning(raw: Record<string, unknown>): Record<string, unknown> | null {
+function tryRestoreOpenAIReasoning(
+  raw: Record<string, unknown>
+): Record<string, unknown> | null {
   if (raw.type !== "thinking") return null;
   const sig = raw.thinkingSignature;
   if (typeof sig !== "string" || !sig.startsWith("{")) return null;
@@ -221,7 +237,10 @@ function tryRestoreOpenAIReasoning(raw: Record<string, unknown>): Record<string,
 }
 
 /** @internal Exported for testing only. */
-export function toolCallBlockFromPart(part: MessagePartRecord, rawType?: string): unknown {
+export function toolCallBlockFromPart(
+  part: MessagePartRecord,
+  rawType?: string
+): unknown {
   const type =
     rawType === "function_call" ||
     rawType === "functionCall" ||
@@ -274,7 +293,7 @@ export function toolCallBlockFromPart(part: MessagePartRecord, rawType?: string)
 export function toolResultBlockFromPart(
   part: MessagePartRecord,
   rawType?: string,
-  raw?: Record<string, unknown>,
+  raw?: Record<string, unknown>
 ): unknown {
   if (
     raw &&
@@ -291,7 +310,9 @@ export function toolResultBlockFromPart(
   }
 
   const type =
-    rawType === "function_call_output" || rawType === "toolResult" || rawType === "tool_result"
+    rawType === "function_call_output" ||
+    rawType === "toolResult" ||
+    rawType === "tool_result"
       ? rawType
       : "tool_result";
   const output = parseStoredValue(part.toolOutput);
@@ -334,7 +355,7 @@ export function toolResultBlockFromPart(
 
 function toRuntimeRole(
   dbRole: MessageRole,
-  parts: MessagePartRecord[],
+  parts: MessagePartRecord[]
 ): "user" | "assistant" | "toolResult" {
   const originalRole = getOriginalRole(parts);
   if (originalRole === "toolResult") {
@@ -366,7 +387,9 @@ export function blockFromPart(part: MessagePartRecord): unknown {
   if (metadata.raw && typeof metadata.raw === "object") {
     // If this is an OpenClaw-normalised OpenAI reasoning block, restore the original
     // OpenAI format so the Responses API gets the {type:"reasoning", id:"rs_…"} it expects.
-    const restored = tryRestoreOpenAIReasoning(metadata.raw as Record<string, unknown>);
+    const restored = tryRestoreOpenAIReasoning(
+      metadata.raw as Record<string, unknown>
+    );
     if (restored) return restored;
 
     // Don't return raw for tool call/result blocks — they need to go through
@@ -374,7 +397,9 @@ export function blockFromPart(part: MessagePartRecord): unknown {
     // arguments (stringify if object) and format for the target provider.
     // Returning raw here causes arguments to be passed as a JS object instead
     // of a JSON string, which breaks xAI/OpenAI Chat Completions API (422).
-    const rawType = (metadata.raw as Record<string, unknown>).type as string | undefined;
+    const rawType = (metadata.raw as Record<string, unknown>).type as
+      | string
+      | undefined;
     const isToolBlock =
       rawType === "toolCall" ||
       rawType === "tool_use" ||
@@ -399,8 +424,8 @@ export function blockFromPart(part: MessagePartRecord): unknown {
       typeof rawRecord.id === "string" && rawRecord.id.length > 0
         ? rawRecord.id
         : typeof rawRecord.call_id === "string" && rawRecord.call_id.length > 0
-          ? rawRecord.call_id
-          : undefined;
+        ? rawRecord.call_id
+        : undefined;
     if (rawToolCallId) {
       if (typeof part.toolCallId !== "string" || part.toolCallId.length === 0) {
         part.toolCallId = rawToolCallId;
@@ -416,7 +441,8 @@ export function blockFromPart(part: MessagePartRecord): unknown {
     if (part.toolInput == null || part.toolInput === "") {
       const rawArgs = rawRecord.arguments ?? rawRecord.input;
       if (rawArgs !== undefined) {
-        part.toolInput = typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs);
+        part.toolInput =
+          typeof rawArgs === "string" ? rawArgs : JSON.stringify(rawArgs);
       }
     }
   }
@@ -425,13 +451,16 @@ export function blockFromPart(part: MessagePartRecord): unknown {
     return reasoningBlockFromPart(part, metadata.rawType);
   }
   if (part.partType === "tool") {
-    if (metadata.originalRole === "toolResult" || metadata.rawType === "function_call_output") {
+    if (
+      metadata.originalRole === "toolResult" ||
+      metadata.rawType === "function_call_output"
+    ) {
       return toolResultBlockFromPart(
         part,
         metadata.rawType,
         metadata.raw && typeof metadata.raw === "object"
           ? (metadata.raw as Record<string, unknown>)
-          : undefined,
+          : undefined
       );
     }
     return toolCallBlockFromPart(part, metadata.rawType);
@@ -456,7 +485,7 @@ export function blockFromPart(part: MessagePartRecord): unknown {
       metadata.rawType,
       metadata.raw && typeof metadata.raw === "object"
         ? (metadata.raw as Record<string, unknown>)
-        : undefined,
+        : undefined
     );
   }
   if (part.partType === "text") {
@@ -481,7 +510,7 @@ export function blockFromPart(part: MessagePartRecord): unknown {
 export function contentFromParts(
   parts: MessagePartRecord[],
   role: "user" | "assistant" | "toolResult",
-  fallbackContent: string,
+  fallbackContent: string
 ): unknown {
   if (parts.length === 0) {
     if (role === "assistant") {
@@ -518,14 +547,18 @@ export function pickToolCallId(parts: MessagePartRecord[]): string | undefined {
       continue;
     }
     const metadataToolCallId = (decoded as { toolCallId?: unknown }).toolCallId;
-    if (typeof metadataToolCallId === "string" && metadataToolCallId.length > 0) {
+    if (
+      typeof metadataToolCallId === "string" &&
+      metadataToolCallId.length > 0
+    ) {
       return metadataToolCallId;
     }
     const raw = (decoded as { raw?: unknown }).raw;
     if (!raw || typeof raw !== "object") {
       continue;
     }
-    const maybe = (raw as { toolCallId?: unknown; tool_call_id?: unknown }).toolCallId;
+    const maybe = (raw as { toolCallId?: unknown; tool_call_id?: unknown })
+      .toolCallId;
     if (typeof maybe === "string" && maybe.length > 0) {
       return maybe;
     }
@@ -568,7 +601,9 @@ export function pickToolName(parts: MessagePartRecord[]): string | undefined {
 }
 
 /** @internal Exported for transcript-maintenance reconstruction. */
-export function pickToolIsError(parts: MessagePartRecord[]): boolean | undefined {
+export function pickToolIsError(
+  parts: MessagePartRecord[]
+): boolean | undefined {
   for (const part of parts) {
     const decoded = parseJson(part.metadata);
     if (!decoded || typeof decoded !== "object") {
@@ -582,7 +617,10 @@ export function pickToolIsError(parts: MessagePartRecord[]): boolean | undefined
   return undefined;
 }
 
-function extractToolCallId(block: { id?: unknown; call_id?: unknown }): string | null {
+function extractToolCallId(block: {
+  id?: unknown;
+  call_id?: unknown;
+}): string | null {
   if (typeof block.id === "string" && block.id.length > 0) {
     return block.id;
   }
@@ -637,7 +675,9 @@ function collectAssistantToolCallIds(items: ResolvedItem[]): Set<string> {
   return ids;
 }
 
-function normalizeFreshTailTokenCap(freshTailMaxTokens?: number): number | undefined {
+function normalizeFreshTailTokenCap(
+  freshTailMaxTokens?: number
+): number | undefined {
   if (
     typeof freshTailMaxTokens === "number" &&
     Number.isFinite(freshTailMaxTokens) &&
@@ -651,7 +691,7 @@ function normalizeFreshTailTokenCap(freshTailMaxTokens?: number): number | undef
 function mergeFreshTailWithMatchingToolResults(
   freshTail: ResolvedItem[],
   matchingToolResults: ResolvedItem[],
-  freshTailMaxTokens?: number,
+  freshTailMaxTokens?: number
 ): { items: ResolvedItem[]; promotedOrdinals: Set<number> } {
   if (matchingToolResults.length === 0) {
     return { items: freshTail, promotedOrdinals: new Set<number>() };
@@ -720,7 +760,7 @@ function mergeFreshTailWithMatchingToolResults(
 function filterNonFreshAssistantToolCalls(
   items: ResolvedItem[],
   freshTailOrdinals: Set<number>,
-  preserveFreshTailToolCalls = true,
+  preserveFreshTailToolCalls = true
 ): AgentMessage[] {
   const availableToolResultIds = new Set<string>();
   for (const item of items) {
@@ -750,8 +790,15 @@ function filterNonFreshAssistantToolCalls(
       if (!block || typeof block !== "object") {
         return true;
       }
-      const record = block as { type?: unknown; id?: unknown; call_id?: unknown };
-      if (typeof record.type !== "string" || !TOOL_CALL_TYPES.has(record.type)) {
+      const record = block as {
+        type?: unknown;
+        id?: unknown;
+        call_id?: unknown;
+      };
+      if (
+        typeof record.type !== "string" ||
+        !TOOL_CALL_TYPES.has(record.type)
+      ) {
         return true;
       }
       const toolCallId = extractToolCallId(record);
@@ -792,7 +839,7 @@ function formatDateForAttribute(date: Date, timezone?: string): string {
       hour12: false,
     });
     const p = Object.fromEntries(
-      fmt.formatToParts(date).map((part) => [part.type, part.value]),
+      fmt.formatToParts(date).map((part) => [part.type, part.value])
     );
     return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;
   } catch {
@@ -806,7 +853,7 @@ function formatDateForAttribute(date: Date, timezone?: string): string {
 async function formatSummaryContent(
   summary: SummaryRecord,
   summaryStore: SummaryStore,
-  timezone?: string,
+  timezone?: string
 ): Promise<string> {
   const attributes = [
     `id="${summary.summaryId}"`,
@@ -815,14 +862,18 @@ async function formatSummaryContent(
     `descendant_count="${summary.descendantCount}"`,
   ];
   if (summary.earliestAt) {
-    attributes.push(`earliest_at="${formatDateForAttribute(summary.earliestAt, timezone)}"`);
+    attributes.push(
+      `earliest_at="${formatDateForAttribute(summary.earliestAt, timezone)}"`
+    );
   }
   if (summary.latestAt) {
-    attributes.push(`latest_at="${formatDateForAttribute(summary.latestAt, timezone)}"`);
+    attributes.push(
+      `latest_at="${formatDateForAttribute(summary.latestAt, timezone)}"`
+    );
   }
 
   const lines: string[] = [];
-  lines.push(`<summary ${attributes.join(" ")}>`); 
+  lines.push(`<summary ${attributes.join(" ")}>`);
 
   // For condensed summaries, include parent references.
   if (summary.kind === "condensed") {
@@ -863,7 +914,7 @@ interface ResolvedItem {
 function resolveFreshTailOrdinal(
   resolved: ResolvedItem[],
   freshTailCount: number,
-  freshTailMaxTokens?: number,
+  freshTailMaxTokens?: number
 ): number {
   if (!Number.isFinite(freshTailCount) || freshTailCount <= 0) {
     return Infinity;
@@ -965,7 +1016,7 @@ export class ContextAssembler {
   constructor(
     private conversationStore: ConversationStore,
     private summaryStore: SummaryStore,
-    private timezone?: string,
+    private timezone?: string
   ) {}
 
   /**
@@ -984,7 +1035,9 @@ export class ContextAssembler {
     const freshTailCount = input.freshTailCount ?? 8;
 
     // Step 1: Get all context items ordered by ordinal
-    const contextItems = await this.summaryStore.getContextItems(conversationId);
+    const contextItems = await this.summaryStore.getContextItems(
+      conversationId
+    );
 
     if (contextItems.length === 0) {
       return {
@@ -1018,11 +1071,17 @@ export class ContextAssembler {
     const freshTailOrdinal = resolveFreshTailOrdinal(
       resolved,
       freshTailCount,
-      input.freshTailMaxTokens,
+      input.freshTailMaxTokens
     );
-    const baseFreshTail = resolved.filter((item) => item.ordinal >= freshTailOrdinal);
-    const initialEvictable = resolved.filter((item) => item.ordinal < freshTailOrdinal);
-    const freshTailOrdinals = new Set(baseFreshTail.map((item) => item.ordinal));
+    const baseFreshTail = resolved.filter(
+      (item) => item.ordinal >= freshTailOrdinal
+    );
+    const initialEvictable = resolved.filter(
+      (item) => item.ordinal < freshTailOrdinal
+    );
+    const freshTailOrdinals = new Set(
+      baseFreshTail.map((item) => item.ordinal)
+    );
     const tailToolCallIds = collectAssistantToolCallIds(baseFreshTail);
     const tailPairToolResults = initialEvictable.filter((item) => {
       const toolResultId = extractToolResultIdFromMessage(item.message);
@@ -1031,10 +1090,10 @@ export class ContextAssembler {
     const mergedFreshTail = mergeFreshTailWithMatchingToolResults(
       baseFreshTail,
       tailPairToolResults,
-      input.freshTailMaxTokens,
+      input.freshTailMaxTokens
     );
     const evictable = initialEvictable.filter(
-      (item) => !mergedFreshTail.promotedOrdinals.has(item.ordinal),
+      (item) => !mergedFreshTail.promotedOrdinals.has(item.ordinal)
     );
     const freshTail = mergedFreshTail.items;
 
@@ -1056,7 +1115,10 @@ export class ContextAssembler {
     // older items as the budget allows; once we exceed the budget we start
     // dropping the *oldest* items. To achieve this we first compute the
     // total, then trim from the front.
-    const evictableTotalTokens = evictable.reduce((sum, it) => sum + it.tokens, 0);
+    const evictableTotalTokens = evictable.reduce(
+      (sum, it) => sum + it.tokens,
+      0
+    );
 
     if (evictableTotalTokens <= remainingBudget) {
       // Everything fits
@@ -1117,14 +1179,16 @@ export class ContextAssembler {
     const rawMessages = filterNonFreshAssistantToolCalls(
       selected,
       freshTailOrdinals,
-      normalizeFreshTailTokenCap(input.freshTailMaxTokens) === undefined,
+      normalizeFreshTailTokenCap(input.freshTailMaxTokens) === undefined
     );
     for (let i = 0; i < rawMessages.length; i++) {
       const msg = rawMessages[i];
       if (msg?.role === "assistant" && typeof msg.content === "string") {
         rawMessages[i] = {
           ...msg,
-          content: [{ type: "text", text: msg.content }] as unknown as typeof msg.content,
+          content: [
+            { type: "text", text: msg.content },
+          ] as unknown as typeof msg.content,
         } as typeof msg;
       }
     }
@@ -1138,7 +1202,7 @@ export class ContextAssembler {
         !(
           m?.role === "assistant" &&
           (Array.isArray(m.content) ? m.content.length === 0 : !m.content)
-        ),
+        )
     );
     return {
       messages: sanitizeToolUseResultPairing(cleaned) as AgentMessage[],
@@ -1160,7 +1224,9 @@ export class ContextAssembler {
    *
    * Items that cannot be resolved (e.g. deleted message) are silently skipped.
    */
-  private async resolveItems(contextItems: ContextItemRecord[]): Promise<ResolvedItem[]> {
+  private async resolveItems(
+    contextItems: ContextItemRecord[]
+  ): Promise<ResolvedItem[]> {
     const resolved: ResolvedItem[] = [];
 
     for (const item of contextItems) {
@@ -1176,7 +1242,9 @@ export class ContextAssembler {
   /**
    * Resolve a single context item.
    */
-  private async resolveItem(item: ContextItemRecord): Promise<ResolvedItem | null> {
+  private async resolveItem(
+    item: ContextItemRecord
+  ): Promise<ResolvedItem | null> {
     if (item.itemType === "message" && item.messageId != null) {
       return this.resolveMessageItem(item);
     }
@@ -1192,7 +1260,9 @@ export class ContextAssembler {
   /**
    * Resolve a context item that references a raw message.
    */
-  private async resolveMessageItem(item: ContextItemRecord): Promise<ResolvedItem | null> {
+  private async resolveMessageItem(
+    item: ContextItemRecord
+  ): Promise<ResolvedItem | null> {
     const msg = await this.conversationStore.getMessageById(item.messageId!);
     if (!msg) {
       return null;
@@ -1212,7 +1282,9 @@ export class ContextAssembler {
     const roleFromStore = toRuntimeRole(msg.role, parts);
     const isToolResult = roleFromStore === "toolResult";
     const toolCallId = isToolResult ? pickToolCallId(parts) : undefined;
-    const toolName = isToolResult ? (pickToolName(parts) ?? "unknown") : undefined;
+    const toolName = isToolResult
+      ? pickToolName(parts) ?? "unknown"
+      : undefined;
     const toolIsError = isToolResult ? pickToolIsError(parts) : undefined;
     // Tool results without a call id cannot be serialized for Anthropic-compatible APIs.
     // This happens for legacy/bootstrap rows that have role=tool but no message_parts.
@@ -1221,7 +1293,9 @@ export class ContextAssembler {
       isToolResult && !toolCallId ? "assistant" : roleFromStore;
     const content = contentFromParts(parts, role, msg.content);
     const contentText =
-      typeof content === "string" ? content : (JSON.stringify(content) ?? msg.content);
+      typeof content === "string"
+        ? content
+        : JSON.stringify(content) ?? msg.content;
     const tokenCount = estimateTokens(contentText);
 
     // Cast: these are reconstructed from DB storage, not live agent messages,
@@ -1253,7 +1327,9 @@ export class ContextAssembler {
               content,
               ...(toolCallId ? { toolCallId } : {}),
               ...(toolName ? { toolName } : {}),
-              ...(role === "toolResult" && toolIsError !== undefined ? { isError: toolIsError } : {}),
+              ...(role === "toolResult" && toolIsError !== undefined
+                ? { isError: toolIsError }
+                : {}),
             } as AgentMessage),
       tokens: tokenCount,
       isMessage: true,
@@ -1265,13 +1341,19 @@ export class ContextAssembler {
    * Resolve a context item that references a summary.
    * Summaries are presented as user messages with a structured XML wrapper.
    */
-  private async resolveSummaryItem(item: ContextItemRecord): Promise<ResolvedItem | null> {
+  private async resolveSummaryItem(
+    item: ContextItemRecord
+  ): Promise<ResolvedItem | null> {
     const summary = await this.summaryStore.getSummary(item.summaryId!);
     if (!summary) {
       return null;
     }
 
-    const content = await formatSummaryContent(summary, this.summaryStore, this.timezone);
+    const content = await formatSummaryContent(
+      summary,
+      this.summaryStore,
+      this.timezone
+    );
     const tokens = estimateTokens(content);
 
     // Cast: summaries are synthetic user messages without full AgentMessage metadata
