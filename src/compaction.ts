@@ -1,7 +1,17 @@
 import { createHash } from "node:crypto";
-import type { ConversationStore, CreateMessagePartInput } from "./store/conversation-store.js";
-import type { SummaryStore, SummaryRecord, ContextItemRecord } from "./store/summary-store.js";
-import { estimateTokens, truncateTextToEstimatedTokens } from "./estimate-tokens.js";
+import type {
+  ConversationStore,
+  CreateMessagePartInput,
+} from "./store/conversation-store.js";
+import type {
+  SummaryStore,
+  SummaryRecord,
+  ContextItemRecord,
+} from "./store/summary-store.js";
+import {
+  estimateTokens,
+  truncateTextToEstimatedTokens,
+} from "./estimate-tokens.js";
 import { extractFileIdsFromContent } from "./large-files.js";
 import { NOOP_LCM_LOGGER, type LcmLogger } from "./lcm-log.js";
 import { LcmProviderAuthError } from "./summarize.js";
@@ -70,7 +80,7 @@ type CompactionSummarizeOptions = {
 type CompactionSummarizeFn = (
   text: string,
   aggressive?: boolean,
-  options?: CompactionSummarizeOptions,
+  options?: CompactionSummarizeOptions
 ) => Promise<string>;
 type PassResult = {
   summaryId: string;
@@ -96,12 +106,11 @@ type CondensedPhaseCandidate = {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-
 /** Deterministically cap summary text so the persisted output stays within maxTokens. */
 function capSummaryText(
   content: string,
   originalTokens: number,
-  maxTokens: number,
+  maxTokens: number
 ): string {
   const suffixes = [
     `\n[Capped from ${originalTokens} tokens to ~${maxTokens}]`,
@@ -112,7 +121,10 @@ function capSummaryText(
 
   for (const suffix of suffixes) {
     const contentBudget = Math.max(0, maxTokens - estimateTokens(suffix));
-    const capped = `${truncateTextToEstimatedTokens(content, contentBudget)}${suffix}`;
+    const capped = `${truncateTextToEstimatedTokens(
+      content,
+      contentBudget
+    )}${suffix}`;
     if (estimateTokens(capped) <= maxTokens) {
       return capped;
     }
@@ -134,7 +146,7 @@ export function formatTimestamp(value: Date, timezone: string = "UTC"): string {
       hour12: false,
     });
     const parts = Object.fromEntries(
-      fmt.formatToParts(value).map((p) => [p.type, p.value]),
+      fmt.formatToParts(value).map((p) => [p.type, p.value])
     );
     const tzAbbr = timezone === "UTC" ? "UTC" : shortTzAbbr(value, timezone);
     return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${tzAbbr}`;
@@ -188,8 +200,20 @@ const MEDIA_PATH_RE = /^MEDIA:\/.+$/;
 const EMBEDDED_DATA_URL_RE = /data:[^;\s"'`]+;base64,[A-Za-z0-9+/=\s]+/gi;
 const MEDIA_ATTACHMENT_PART_TYPES = new Set(["file", "snapshot"]);
 const MEDIA_ATTACHMENT_RAW_TYPES = new Set(["file", "image", "snapshot"]);
-const STRUCTURED_MEDIA_TEXT_KEYS = ["text", "caption", "alt", "title", "summary"] as const;
-const STRUCTURED_MEDIA_NESTED_KEYS = ["content", "parts", "items", "message", "messages"] as const;
+const STRUCTURED_MEDIA_TEXT_KEYS = [
+  "text",
+  "caption",
+  "alt",
+  "title",
+  "summary",
+] as const;
+const STRUCTURED_MEDIA_NESTED_KEYS = [
+  "content",
+  "parts",
+  "items",
+  "message",
+  "messages",
+] as const;
 
 const CONDENSED_MIN_INPUT_RATIO = 0.1;
 
@@ -206,7 +230,9 @@ function dedupeOrderedIds(ids: Iterable<string>): string[] {
 }
 
 /** Parse message-part metadata without throwing on malformed JSON. */
-function parseMessagePartMetadata(part: CreateMessagePartInput | { metadata: string | null }): Record<string, unknown> {
+function parseMessagePartMetadata(
+  part: CreateMessagePartInput | { metadata: string | null }
+): Record<string, unknown> {
   if (typeof part.metadata !== "string" || !part.metadata.trim()) {
     return {};
   }
@@ -241,7 +267,10 @@ function looksLikeBinaryPayload(value: string): boolean {
 
 /** Strip attachment payloads from plain strings before they reach the summarizer. */
 function stripEmbeddedMediaPayloads(content: string): string {
-  const withoutDataUrls = content.replace(EMBEDDED_DATA_URL_RE, "[embedded media omitted]");
+  const withoutDataUrls = content.replace(
+    EMBEDDED_DATA_URL_RE,
+    "[embedded media omitted]"
+  );
   const sanitizedLines = withoutDataUrls
     .split(/\r?\n/)
     .map((line) => line.trimEnd())
@@ -271,14 +300,17 @@ function extractSanitizedStructuredText(value: unknown, depth = 0): string[] {
     return sanitized ? [sanitized] : [];
   }
   if (Array.isArray(value)) {
-    return value.flatMap((entry) => extractSanitizedStructuredText(entry, depth + 1));
+    return value.flatMap((entry) =>
+      extractSanitizedStructuredText(entry, depth + 1)
+    );
   }
   if (typeof value !== "object") {
     return [];
   }
 
   const record = value as Record<string, unknown>;
-  const rawType = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+  const rawType =
+    typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
   const textFragments: string[] = [];
 
   for (const key of STRUCTURED_MEDIA_TEXT_KEYS) {
@@ -297,7 +329,9 @@ function extractSanitizedStructuredText(value: unknown, depth = 0): string[] {
   }
 
   for (const key of STRUCTURED_MEDIA_NESTED_KEYS) {
-    textFragments.push(...extractSanitizedStructuredText(record[key], depth + 1));
+    textFragments.push(
+      ...extractSanitizedStructuredText(record[key], depth + 1)
+    );
   }
 
   return textFragments;
@@ -309,7 +343,10 @@ function extractMeaningfulMessageText(content: string): string {
   if (!trimmed) {
     return "";
   }
-  if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+  if (
+    (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+    (trimmed.startsWith("{") && trimmed.endsWith("}"))
+  ) {
     try {
       const parsed = JSON.parse(trimmed) as unknown;
       const extracted = extractSanitizedStructuredText(parsed)
@@ -324,7 +361,9 @@ function extractMeaningfulMessageText(content: string): string {
 }
 
 /** Identify whether a stored message part represents a media attachment. */
-function isMediaAttachmentPart(part: CreateMessagePartInput | { partType: string; metadata: string | null }): boolean {
+function isMediaAttachmentPart(
+  part: CreateMessagePartInput | { partType: string; metadata: string | null }
+): boolean {
   if (MEDIA_ATTACHMENT_PART_TYPES.has(part.partType)) {
     return true;
   }
@@ -332,10 +371,14 @@ function isMediaAttachmentPart(part: CreateMessagePartInput | { partType: string
   const rawType =
     typeof metadata.rawType === "string"
       ? metadata.rawType.trim().toLowerCase()
-      : metadata.raw && typeof metadata.raw === "object" && !Array.isArray(metadata.raw) &&
-          typeof (metadata.raw as Record<string, unknown>).type === "string"
-        ? ((metadata.raw as Record<string, unknown>).type as string).trim().toLowerCase()
-        : "";
+      : metadata.raw &&
+        typeof metadata.raw === "object" &&
+        !Array.isArray(metadata.raw) &&
+        typeof (metadata.raw as Record<string, unknown>).type === "string"
+      ? ((metadata.raw as Record<string, unknown>).type as string)
+          .trim()
+          .toLowerCase()
+      : "";
   return MEDIA_ATTACHMENT_RAW_TYPES.has(rawType);
 }
 
@@ -359,11 +402,13 @@ export class CompactionEngine {
     private conversationStore: ConversationStore,
     private summaryStore: SummaryStore,
     private config: CompactionConfig,
-    private log: LcmLogger = NOOP_LCM_LOGGER,
+    private log: LcmLogger = NOOP_LCM_LOGGER
   ) {}
 
   /** Read context items, using per-phase cache when active. */
-  private async getContextItemsCached(conversationId: number): Promise<ContextItemRecord[]> {
+  private async getContextItemsCached(
+    conversationId: number
+  ): Promise<ContextItemRecord[]> {
     if (this._contextItemsCache) {
       if (this._contextItemsCache.has(conversationId)) {
         return this._contextItemsCache.get(conversationId)!;
@@ -401,9 +446,11 @@ export class CompactionEngine {
   async evaluate(
     conversationId: number,
     tokenBudget: number,
-    observedTokenCount?: number,
+    observedTokenCount?: number
   ): Promise<CompactionDecision> {
-    const storedTokens = await this.summaryStore.getContextTokenCount(conversationId);
+    const storedTokens = await this.summaryStore.getContextTokenCount(
+      conversationId
+    );
     const liveTokens =
       typeof observedTokenCount === "number" &&
       Number.isFinite(observedTokenCount) &&
@@ -437,12 +484,17 @@ export class CompactionEngine {
    * `leafChunkTokens`. This lets callers trigger a soft incremental leaf pass
    * before the full context threshold is breached.
    */
-  async evaluateLeafTrigger(conversationId: number, leafChunkTokensOverride?: number): Promise<{
+  async evaluateLeafTrigger(
+    conversationId: number,
+    leafChunkTokensOverride?: number
+  ): Promise<{
     shouldCompact: boolean;
     rawTokensOutsideTail: number;
     threshold: number;
   }> {
-    const rawTokensOutsideTail = await this.countRawTokensOutsideFreshTail(conversationId);
+    const rawTokensOutsideTail = await this.countRawTokensOutsideFreshTail(
+      conversationId
+    );
     const threshold = this.resolveLeafChunkTokens(leafChunkTokensOverride);
     return {
       shouldCompact: rawTokensOutsideTail >= threshold,
@@ -492,12 +544,18 @@ export class CompactionEngine {
     force?: boolean;
     previousSummaryContent?: string;
     summaryModel?: string;
+    allowCondensedPasses?: boolean;
   }): Promise<CompactionResult> {
     const { conversationId, tokenBudget, summarize, force } = input;
 
-    const tokensBefore = await this.summaryStore.getContextTokenCount(conversationId);
+    const tokensBefore = await this.summaryStore.getContextTokenCount(
+      conversationId
+    );
     const threshold = Math.floor(this.config.contextThreshold * tokenBudget);
-    const leafTrigger = await this.evaluateLeafTrigger(conversationId, input.leafChunkTokens);
+    const leafTrigger = await this.evaluateLeafTrigger(
+      conversationId,
+      input.leafChunkTokens
+    );
 
     if (!force && tokensBefore <= threshold && !leafTrigger.shouldCompact) {
       return {
@@ -508,7 +566,10 @@ export class CompactionEngine {
       };
     }
 
-    const leafChunk = await this.selectOldestLeafChunk(conversationId, input.leafChunkTokens);
+    const leafChunk = await this.selectOldestLeafChunk(
+      conversationId,
+      input.leafChunkTokens
+    );
     if (leafChunk.items.length === 0) {
       return {
         actionTaken: false,
@@ -520,14 +581,17 @@ export class CompactionEngine {
 
     const previousSummaryContent =
       input.previousSummaryContent ??
-      (await this.resolvePriorLeafSummaryContext(conversationId, leafChunk.items));
+      (await this.resolvePriorLeafSummaryContext(
+        conversationId,
+        leafChunk.items
+      ));
 
     const leafResult = await this.leafPass(
       conversationId,
       leafChunk.items,
       summarize,
       previousSummaryContent,
-      input.summaryModel,
+      input.summaryModel
     );
     if (!leafResult) {
       return {
@@ -539,7 +603,8 @@ export class CompactionEngine {
       };
     }
     // Delta tracking: compute token change from pass results instead of re-querying DB
-    const tokensAfterLeaf = tokensBefore - leafResult.removedTokens + leafResult.addedTokens;
+    const tokensAfterLeaf =
+      tokensBefore - leafResult.removedTokens + leafResult.addedTokens;
 
     await this.persistCompactionEvents({
       conversationId,
@@ -559,10 +624,20 @@ export class CompactionEngine {
     const condensedMinChunkTokens = this.resolveCondensedMinChunkTokens();
     let runningTokens = tokensAfterLeaf;
     if (incrementalMaxDepth > 0 && input.allowCondensedPasses !== false) {
-      for (let targetDepth = 0; targetDepth < incrementalMaxDepth; targetDepth++) {
+      for (
+        let targetDepth = 0;
+        targetDepth < incrementalMaxDepth;
+        targetDepth++
+      ) {
         const fanout = this.resolveFanoutForDepth(targetDepth, false);
-        const chunk = await this.selectOldestChunkAtDepth(conversationId, targetDepth);
-        if (chunk.items.length < fanout || chunk.summaryTokens < condensedMinChunkTokens) {
+        const chunk = await this.selectOldestChunkAtDepth(
+          conversationId,
+          targetDepth
+        );
+        if (
+          chunk.items.length < fanout ||
+          chunk.summaryTokens < condensedMinChunkTokens
+        ) {
           break;
         }
 
@@ -572,12 +647,15 @@ export class CompactionEngine {
           chunk.items,
           targetDepth,
           summarize,
-          input.summaryModel,
+          input.summaryModel
         );
         if (!condenseResult) {
           break;
         }
-        const passTokensAfter = passTokensBefore - condenseResult.removedTokens + condenseResult.addedTokens;
+        const passTokensAfter =
+          passTokensBefore -
+          condenseResult.removedTokens +
+          condenseResult.addedTokens;
         await this.persistCompactionEvents({
           conversationId,
           tokensBefore: passTokensBefore,
@@ -624,9 +702,12 @@ export class CompactionEngine {
     hardTrigger?: boolean;
     summaryModel?: string;
   }): Promise<CompactionResult> {
-    const { conversationId, tokenBudget, summarize, force, hardTrigger } = input;
+    const { conversationId, tokenBudget, summarize, force, hardTrigger } =
+      input;
 
-    const tokensBefore = await this.summaryStore.getContextTokenCount(conversationId);
+    const tokensBefore = await this.summaryStore.getContextTokenCount(
+      conversationId
+    );
     const threshold = Math.floor(this.config.contextThreshold * tokenBudget);
     const leafTrigger = await this.evaluateLeafTrigger(conversationId);
 
@@ -673,19 +754,23 @@ export class CompactionEngine {
         leafChunk.items,
         summarize,
         previousSummaryContent,
-        input.summaryModel,
+        input.summaryModel
       );
       if (!leafResult) {
         hadAuthFailure = true;
         break;
       }
-      const passTokensAfter = passTokensBefore - leafResult.removedTokens + leafResult.addedTokens;
+      const passTokensAfter =
+        passTokensBefore - leafResult.removedTokens + leafResult.addedTokens;
       await this.persistCompactionEvents({
         conversationId,
         tokensBefore: passTokensBefore,
         tokensAfterLeaf: passTokensAfter,
         tokensAfterFinal: passTokensAfter,
-        leafResult: { summaryId: leafResult.summaryId, level: leafResult.level },
+        leafResult: {
+          summaryId: leafResult.summaryId,
+          level: leafResult.level,
+        },
         condenseResult: null,
       });
 
@@ -699,7 +784,10 @@ export class CompactionEngine {
         previousTokens = passTokensAfter;
         break;
       }
-      if (passTokensAfter >= passTokensBefore || passTokensAfter >= previousTokens) {
+      if (
+        passTokensAfter >= passTokensBefore ||
+        passTokensAfter >= previousTokens
+      ) {
         break;
       }
       previousTokens = passTokensAfter;
@@ -721,13 +809,16 @@ export class CompactionEngine {
         candidate.chunk.items,
         candidate.targetDepth,
         summarize,
-        input.summaryModel,
+        input.summaryModel
       );
       if (!condenseResult) {
         hadAuthFailure = true;
         break;
       }
-      const passTokensAfter = passTokensBefore - condenseResult.removedTokens + condenseResult.addedTokens;
+      const passTokensAfter =
+        passTokensBefore -
+        condenseResult.removedTokens +
+        condenseResult.addedTokens;
       await this.persistCompactionEvents({
         conversationId,
         tokensBefore: passTokensBefore,
@@ -747,7 +838,10 @@ export class CompactionEngine {
         previousTokens = passTokensAfter;
         break;
       }
-      if (passTokensAfter >= passTokensBefore || passTokensAfter >= previousTokens) {
+      if (
+        passTokensAfter >= passTokensBefore ||
+        passTokensAfter >= previousTokens
+      ) {
         break;
       }
       previousTokens = passTokensAfter;
@@ -776,7 +870,12 @@ export class CompactionEngine {
     currentTokens?: number;
     summarize: CompactionSummarizeFn;
     summaryModel?: string;
-  }): Promise<{ success: boolean; rounds: number; finalTokens: number; authFailure?: boolean }> {
+  }): Promise<{
+    success: boolean;
+    rounds: number;
+    finalTokens: number;
+    authFailure?: boolean;
+  }> {
     return this.withContextCache(() => this._compactUntilUnderImpl(input));
   }
 
@@ -787,7 +886,12 @@ export class CompactionEngine {
     currentTokens?: number;
     summarize: CompactionSummarizeFn;
     summaryModel?: string;
-  }): Promise<{ success: boolean; rounds: number; finalTokens: number; authFailure?: boolean }> {
+  }): Promise<{
+    success: boolean;
+    rounds: number;
+    finalTokens: number;
+    authFailure?: boolean;
+  }> {
     const { conversationId, tokenBudget, summarize } = input;
     const targetTokens =
       typeof input.targetTokens === "number" &&
@@ -796,7 +900,9 @@ export class CompactionEngine {
         ? Math.floor(input.targetTokens)
         : tokenBudget;
 
-    const storedTokens = await this.summaryStore.getContextTokenCount(conversationId);
+    const storedTokens = await this.summaryStore.getContextTokenCount(
+      conversationId
+    );
     const liveTokens =
       typeof input.currentTokens === "number" &&
       Number.isFinite(input.currentTokens) &&
@@ -909,7 +1015,9 @@ export class CompactionEngine {
    *
    * Messages with ordinal >= returned value are preserved as fresh tail.
    */
-  private async resolveFreshTailOrdinal(contextItems: ContextItemRecord[]): Promise<number> {
+  private async resolveFreshTailOrdinal(
+    contextItems: ContextItemRecord[]
+  ): Promise<number> {
     const freshTailCount = this.resolveFreshTailCount();
     if (freshTailCount <= 0) {
       return Infinity;
@@ -917,7 +1025,7 @@ export class CompactionEngine {
     const freshTailMaxTokens = this.resolveFreshTailMaxTokens();
 
     const rawMessageItems = contextItems.filter(
-      (item) => item.itemType === "message" && item.messageId != null,
+      (item) => item.itemType === "message" && item.messageId != null
     );
     if (rawMessageItems.length === 0) {
       return Infinity;
@@ -971,7 +1079,9 @@ export class CompactionEngine {
   }
 
   /** Sum raw message tokens outside the protected fresh tail. */
-  private async countRawTokensOutsideFreshTail(conversationId: number): Promise<number> {
+  private async countRawTokensOutsideFreshTail(
+    conversationId: number
+  ): Promise<number> {
     const contextItems = await this.getContextItemsCached(conversationId);
     const freshTailOrdinal = await this.resolveFreshTailOrdinal(contextItems);
     let rawTokens = 0;
@@ -997,7 +1107,7 @@ export class CompactionEngine {
    */
   private async selectOldestLeafChunk(
     conversationId: number,
-    leafChunkTokensOverride?: number,
+    leafChunkTokensOverride?: number
   ): Promise<LeafChunkSelection> {
     const contextItems = await this.getContextItemsCached(conversationId);
     const freshTailOrdinal = await this.resolveFreshTailOrdinal(contextItems);
@@ -1057,7 +1167,7 @@ export class CompactionEngine {
    */
   private async resolvePriorLeafSummaryContext(
     conversationId: number,
-    messageItems: ContextItemRecord[],
+    messageItems: ContextItemRecord[]
   ): Promise<string | undefined> {
     if (messageItems.length === 0) {
       return undefined;
@@ -1069,7 +1179,7 @@ export class CompactionEngine {
         (item) =>
           item.ordinal < startOrdinal &&
           item.itemType === "summary" &&
-          typeof item.summaryId === "string",
+          typeof item.summaryId === "string"
       )
       .slice(-2);
 
@@ -1109,7 +1219,10 @@ export class CompactionEngine {
   }
 
   /** Resolve message token count with content-length fallback. */
-  private resolveMessageTokenCount(message: { tokenCount: number; content: string }): number {
+  private resolveMessageTokenCount(message: {
+    tokenCount: number;
+    content: string;
+  }): number {
     if (
       typeof message.tokenCount === "number" &&
       Number.isFinite(message.tokenCount) &&
@@ -1159,11 +1272,15 @@ export class CompactionEngine {
       Number.isFinite(this.config.incrementalMaxDepth)
     ) {
       if (this.config.incrementalMaxDepth < 0) return Infinity;
-      if (this.config.incrementalMaxDepth > 0) return Math.floor(this.config.incrementalMaxDepth);
+      if (this.config.incrementalMaxDepth > 0)
+        return Math.floor(this.config.incrementalMaxDepth);
     }
     return 0;
   }
-  private resolveFanoutForDepth(targetDepth: number, hardTrigger: boolean): number {
+  private resolveFanoutForDepth(
+    targetDepth: number,
+    hardTrigger: boolean
+  ): number {
     if (hardTrigger) {
       return this.resolveCondensedMinFanoutHard();
     }
@@ -1191,16 +1308,19 @@ export class CompactionEngine {
     const contextItems = await this.getContextItemsCached(conversationId);
     const freshTailOrdinal = await this.resolveFreshTailOrdinal(contextItems);
     const minChunkTokens = this.resolveCondensedMinChunkTokens();
-    const depthLevels = await this.summaryStore.getDistinctDepthsInContext(conversationId, {
-      maxOrdinalExclusive: freshTailOrdinal,
-    });
+    const depthLevels = await this.summaryStore.getDistinctDepthsInContext(
+      conversationId,
+      {
+        maxOrdinalExclusive: freshTailOrdinal,
+      }
+    );
 
     for (const targetDepth of depthLevels) {
       const fanout = this.resolveFanoutForDepth(targetDepth, hardTrigger);
       const chunk = await this.selectOldestChunkAtDepth(
         conversationId,
         targetDepth,
-        freshTailOrdinal,
+        freshTailOrdinal
       );
       if (chunk.items.length < fanout) {
         continue;
@@ -1223,7 +1343,7 @@ export class CompactionEngine {
   private async selectOldestChunkAtDepth(
     conversationId: number,
     targetDepth: number,
-    freshTailOrdinalOverride?: number,
+    freshTailOrdinalOverride?: number
   ): Promise<CondensedChunkSelection> {
     const contextItems = await this.getContextItemsCached(conversationId);
     const freshTailOrdinal =
@@ -1277,7 +1397,7 @@ export class CompactionEngine {
   private async resolvePriorSummaryContextAtDepth(
     conversationId: number,
     summaryItems: ContextItemRecord[],
-    targetDepth: number,
+    targetDepth: number
   ): Promise<string | undefined> {
     if (summaryItems.length === 0) {
       return undefined;
@@ -1289,7 +1409,7 @@ export class CompactionEngine {
         (item) =>
           item.ordinal < startOrdinal &&
           item.itemType === "summary" &&
-          typeof item.summaryId === "string",
+          typeof item.summaryId === "string"
       )
       .slice(-4);
     if (priorSummaryItems.length === 0) {
@@ -1339,11 +1459,14 @@ export class CompactionEngine {
       };
     }
     const inputTokens = Math.max(1, estimateTokens(sourceText));
-    const buildDeterministicFallback = (): { content: string; level: CompactionLevel } => {
+    const buildDeterministicFallback = (): {
+      content: string;
+      level: CompactionLevel;
+    } => {
       const suffix = `\n[Truncated from ${inputTokens} tokens]`;
       const truncated = truncateTextToEstimatedTokens(
         sourceText,
-        Math.max(0, FALLBACK_MAX_TOKENS - estimateTokens(suffix)),
+        Math.max(0, FALLBACK_MAX_TOKENS - estimateTokens(suffix))
       );
       return {
         content: `${truncated}${suffix}`,
@@ -1353,11 +1476,15 @@ export class CompactionEngine {
     const authFailure = Symbol("authFailure");
 
     const runSummarizer = async (
-      aggressiveMode: boolean,
+      aggressiveMode: boolean
     ): Promise<string | null | typeof authFailure> => {
       let output: string;
       try {
-        output = await params.summarize(sourceText, aggressiveMode, params.options);
+        output = await params.summarize(
+          sourceText,
+          aggressiveMode,
+          params.options
+        );
       } catch (err) {
         if (err instanceof LcmProviderAuthError) {
           return authFailure;
@@ -1398,11 +1525,15 @@ export class CompactionEngine {
 
     // Hard cap: enforce maximum summary size relative to the kind-appropriate target.
     const summaryTokens = estimateTokens(summaryText);
-    const maxTokens = Math.ceil(params.targetTokens * this.config.summaryMaxOverageFactor);
+    const maxTokens = Math.ceil(
+      params.targetTokens * this.config.summaryMaxOverageFactor
+    );
 
     if (summaryTokens > Math.ceil(params.targetTokens * 1.5)) {
       this.log.warn(
-        `[lcm] summary exceeds target by ${Math.round((summaryTokens / params.targetTokens - 1) * 100)}%: ${summaryTokens} tokens vs target ${params.targetTokens}`,
+        `[lcm] summary exceeds target by ${Math.round(
+          (summaryTokens / params.targetTokens - 1) * 100
+        )}%: ${summaryTokens} tokens vs target ${params.targetTokens}`
       );
     }
 
@@ -1428,7 +1559,7 @@ export class CompactionEngine {
    */
   private async annotateMediaContent(
     messageId: number,
-    content: string,
+    content: string
   ): Promise<string> {
     const parts = await this.conversationStore.getMessageParts(messageId);
     const hasMediaParts = parts.some((part) => isMediaAttachmentPart(part));
@@ -1438,7 +1569,9 @@ export class CompactionEngine {
 
     const partText = parts
       .filter((part) => !isMediaAttachmentPart(part))
-      .map((part) => (typeof part.textContent === "string" ? part.textContent : ""))
+      .map((part) =>
+        typeof part.textContent === "string" ? part.textContent : ""
+      )
       .map((text) => stripEmbeddedMediaPayloads(text))
       .map((text) => text.trim())
       .filter(Boolean)
@@ -1466,11 +1599,21 @@ export class CompactionEngine {
     messageItems: ContextItemRecord[],
     summarize: CompactionSummarizeFn,
     previousSummaryContent?: string,
-    summaryModel?: string,
-  ): Promise<{ summaryId: string; level: CompactionLevel; content: string; removedTokens: number; addedTokens: number } | null> {
+    summaryModel?: string
+  ): Promise<{
+    summaryId: string;
+    level: CompactionLevel;
+    content: string;
+    removedTokens: number;
+    addedTokens: number;
+  } | null> {
     // Fetch full message content for each context item
-    const messageContents: { messageId: number; content: string; createdAt: Date; tokenCount: number }[] =
-      [];
+    const messageContents: {
+      messageId: number;
+      content: string;
+      createdAt: Date;
+      tokenCount: number;
+    }[] = [];
     for (const item of messageItems) {
       if (item.messageId == null) {
         continue;
@@ -1479,7 +1622,7 @@ export class CompactionEngine {
       if (msg) {
         const annotatedContent = await this.annotateMediaContent(
           msg.messageId,
-          msg.content,
+          msg.content
         );
         messageContents.push({
           messageId: msg.messageId,
@@ -1491,10 +1634,17 @@ export class CompactionEngine {
     }
 
     const concatenated = messageContents
-      .map((message) => `[${formatTimestamp(message.createdAt, this.config.timezone)}]\n${message.content}`)
+      .map(
+        (message) =>
+          `[${formatTimestamp(message.createdAt, this.config.timezone)}]\n${
+            message.content
+          }`
+      )
       .join("\n\n");
     const fileIds = dedupeOrderedIds(
-      messageContents.flatMap((message) => extractFileIdsFromContent(message.content)),
+      messageContents.flatMap((message) =>
+        extractFileIdsFromContent(message.content)
+      )
     );
     const summary = await this.summarizeWithEscalation({
       sourceText: concatenated,
@@ -1507,7 +1657,7 @@ export class CompactionEngine {
     });
     if (!summary) {
       this.log.warn(
-        `[lcm] leaf compaction skipped summary write; conversationId=${conversationId}; chunkMessages=${messageContents.length}`,
+        `[lcm] leaf compaction skipped summary write; conversationId=${conversationId}; chunkMessages=${messageContents.length}`
       );
       return null;
     }
@@ -1523,7 +1673,7 @@ export class CompactionEngine {
     // For summaries, removedTokens matches the DB exactly (same tokenCount column).
     const removedTokens = messageContents.reduce(
       (sum, message) => sum + Math.max(0, Math.floor(message.tokenCount)),
-      0,
+      0
     );
 
     await this.summaryStore.withTransaction(async () => {
@@ -1537,11 +1687,23 @@ export class CompactionEngine {
         fileIds,
         earliestAt:
           messageContents.length > 0
-            ? new Date(Math.min(...messageContents.map((message) => message.createdAt.getTime())))
+            ? new Date(
+                Math.min(
+                  ...messageContents.map((message) =>
+                    message.createdAt.getTime()
+                  )
+                )
+              )
             : undefined,
         latestAt:
           messageContents.length > 0
-            ? new Date(Math.max(...messageContents.map((message) => message.createdAt.getTime())))
+            ? new Date(
+                Math.max(
+                  ...messageContents.map((message) =>
+                    message.createdAt.getTime()
+                  )
+                )
+              )
             : undefined,
         descendantCount: 0,
         descendantTokenCount: 0,
@@ -1567,7 +1729,13 @@ export class CompactionEngine {
     });
     this.invalidateContextCache(conversationId);
 
-    return { summaryId, level: summary.level, content: summary.content, removedTokens, addedTokens: tokenCount };
+    return {
+      summaryId,
+      level: summary.level,
+      content: summary.content,
+      removedTokens,
+      addedTokens: tokenCount,
+    };
   }
 
   // ── Private: Condensed Pass ──────────────────────────────────────────────
@@ -1580,7 +1748,7 @@ export class CompactionEngine {
     summaryItems: ContextItemRecord[],
     targetDepth: number,
     summarize: CompactionSummarizeFn,
-    summaryModel?: string,
+    summaryModel?: string
   ): Promise<PassResult | null> {
     // Fetch full summary records
     const summaryRecords: SummaryRecord[] = [];
@@ -1599,7 +1767,10 @@ export class CompactionEngine {
         const earliestAt = summary.earliestAt ?? summary.createdAt;
         const latestAt = summary.latestAt ?? summary.createdAt;
         const tz = this.config.timezone;
-        const header = `[${formatTimestamp(earliestAt, tz)} - ${formatTimestamp(latestAt, tz)}]`;
+        const header = `[${formatTimestamp(earliestAt, tz)} - ${formatTimestamp(
+          latestAt,
+          tz
+        )}]`;
         return `${header}\n${summary.content}`;
       })
       .join("\n\n");
@@ -1607,11 +1778,15 @@ export class CompactionEngine {
       summaryRecords.flatMap((summary) => [
         ...summary.fileIds,
         ...extractFileIdsFromContent(summary.content),
-      ]),
+      ])
     );
     const previousSummaryContent =
       targetDepth === 0
-        ? await this.resolvePriorSummaryContextAtDepth(conversationId, summaryItems, targetDepth)
+        ? await this.resolvePriorSummaryContextAtDepth(
+            conversationId,
+            summaryItems,
+            targetDepth
+          )
         : undefined;
     const condensed = await this.summarizeWithEscalation({
       sourceText: concatenated,
@@ -1625,7 +1800,7 @@ export class CompactionEngine {
     });
     if (!condensed) {
       this.log.warn(
-        `[lcm] condensed compaction skipped summary write; conversationId=${conversationId}; depth=${targetDepth}; chunkSummaries=${summaryRecords.length}`,
+        `[lcm] condensed compaction skipped summary write; conversationId=${conversationId}; depth=${targetDepth}; chunkSummaries=${summaryRecords.length}`
       );
       return null;
     }
@@ -1648,24 +1823,25 @@ export class CompactionEngine {
             ? new Date(
                 Math.min(
                   ...summaryRecords.map((summary) =>
-                    (summary.earliestAt ?? summary.createdAt).getTime(),
-                  ),
-                ),
+                    (summary.earliestAt ?? summary.createdAt).getTime()
+                  )
+                )
               )
             : undefined,
         latestAt:
           summaryRecords.length > 0
             ? new Date(
                 Math.max(
-                  ...summaryRecords.map(
-                    (summary) => (summary.latestAt ?? summary.createdAt).getTime(),
-                  ),
-                ),
+                  ...summaryRecords.map((summary) =>
+                    (summary.latestAt ?? summary.createdAt).getTime()
+                  )
+                )
               )
             : undefined,
         descendantCount: summaryRecords.reduce((count, summary) => {
           const childDescendants =
-            typeof summary.descendantCount === "number" && Number.isFinite(summary.descendantCount)
+            typeof summary.descendantCount === "number" &&
+            Number.isFinite(summary.descendantCount)
               ? Math.max(0, Math.floor(summary.descendantCount))
               : 0;
           return count + childDescendants + 1;
@@ -1676,7 +1852,11 @@ export class CompactionEngine {
             Number.isFinite(summary.descendantTokenCount)
               ? Math.max(0, Math.floor(summary.descendantTokenCount))
               : 0;
-          return count + Math.max(0, Math.floor(summary.tokenCount)) + childDescendantTokens;
+          return (
+            count +
+            Math.max(0, Math.floor(summary.tokenCount)) +
+            childDescendantTokens
+          );
         }, 0),
         sourceMessageTokenCount: summaryRecords.reduce((count, summary) => {
           const sourceTokens =
@@ -1709,9 +1889,14 @@ export class CompactionEngine {
 
     const removedTokens = summaryRecords.reduce(
       (sum, s) => sum + Math.max(0, Math.floor(s.tokenCount)),
-      0,
+      0
     );
-    return { summaryId, level: condensed.level, removedTokens, addedTokens: tokenCount };
+    return {
+      summaryId,
+      level: condensed.level,
+      removedTokens,
+      addedTokens: tokenCount,
+    };
   }
 
   /** Emit compaction telemetry without mutating canonical conversation history. */
@@ -1736,14 +1921,17 @@ export class CompactionEngine {
       return;
     }
 
-    const conversation = await this.conversationStore.getConversation(conversationId);
+    const conversation = await this.conversationStore.getConversation(
+      conversationId
+    );
     if (!conversation) {
       return;
     }
 
-    const createdSummaryIds = [leafResult?.summaryId, condenseResult?.summaryId].filter(
-      (id): id is string => typeof id === "string" && id.length > 0,
-    );
+    const createdSummaryIds = [
+      leafResult?.summaryId,
+      condenseResult?.summaryId,
+    ].filter((id): id is string => typeof id === "string" && id.length > 0);
     const condensedPassOccurred = condenseResult !== null;
 
     if (leafResult) {
@@ -1789,7 +1977,7 @@ export class CompactionEngine {
   }): Promise<void> {
     const content = `LCM compaction ${input.pass} pass (${input.level}): ${input.tokensBefore} -> ${input.tokensAfter}`;
     this.log.info(
-      `[lcm] ${content} conversation=${input.conversationId} summary=${input.createdSummaryId}`,
+      `[lcm] ${content} conversation=${input.conversationId} summary=${input.createdSummaryId}`
     );
   }
 }

@@ -1130,7 +1130,7 @@ export class ContextAssembler {
       // Re-sort selected items by ordinal to restore chronological order.
       const scored = evictable.map((item, idx) => ({
         item,
-        score: scoreRelevance(item.text, input.prompt),
+        score: scoreRelevance(item.text, input.prompt ?? ""),
         idx, // original index — higher = more recent, used as tiebreaker
       }));
       // Sort: highest relevance first; most recent (higher idx) breaks ties

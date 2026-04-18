@@ -154,7 +154,7 @@ type CompactionExecutionParams = {
 type ContextEngineMaintenanceRuntimeContext = Record<string, unknown> & {
   allowDeferredCompactionExecution?: boolean;
   rewriteTranscriptEntries?: (
-    request: TranscriptRewriteRequest
+    request: TranscriptRewriteRequest,
   ) => Promise<ContextEngineMaintenanceResult>;
 };
 
@@ -193,7 +193,7 @@ function safeBoolean(value: unknown): boolean | undefined {
 }
 
 function extractTranscriptToolCallId(
-  message: AgentMessage
+  message: AgentMessage,
 ): string | undefined {
   const topLevel = message as Record<string, unknown>;
   const direct =
@@ -232,7 +232,7 @@ function extractTranscriptToolCallId(
 }
 
 function listTranscriptToolResultEntryIdsByCallId(
-  sessionFile: string
+  sessionFile: string,
 ): Map<string, string> {
   const sessionManager = SessionManager.open(sessionFile);
   const branch = sessionManager.getBranch();
@@ -244,7 +244,7 @@ function listTranscriptToolResultEntryIdsByCallId(
       continue;
     }
     const toolCallId = extractTranscriptToolCallId(
-      entry.message as AgentMessage
+      entry.message as AgentMessage,
     );
     if (!toolCallId) {
       continue;
@@ -274,7 +274,7 @@ function isRotatePreservedEntryType(type: string): boolean {
 
 function normalizeRotateTailMessageCount(
   value: number,
-  branchMessageCount: number
+  branchMessageCount: number,
 ): number {
   if (branchMessageCount <= 0) {
     return 0;
@@ -357,7 +357,7 @@ function looksLikeJsonPayload(value: string): boolean {
 
 function extractStructuredText(
   value: unknown,
-  depth: number = 0
+  depth: number = 0,
 ): string | undefined {
   if (value == null || depth > MAX_STRUCTURED_TEXT_DEPTH) {
     return undefined;
@@ -444,7 +444,7 @@ function extractStructuredText(
 }
 
 function extractReasoningText(
-  record: Record<string, unknown>
+  record: Record<string, unknown>,
 ): string | undefined {
   const chunks: string[] = [];
   appendTextValue(record.summary, chunks);
@@ -455,7 +455,7 @@ function extractReasoningText(
   const normalized = chunks
     .map((chunk) => chunk.trim())
     .filter(
-      (chunk, idx, arr) => chunk.length > 0 && arr.indexOf(chunk) === idx
+      (chunk, idx, arr) => chunk.length > 0 && arr.indexOf(chunk) === idx,
     );
   return normalized.length > 0 ? normalized.join("\n") : undefined;
 }
@@ -558,7 +558,7 @@ function extractMessageContent(content: unknown): string {
         item !== null &&
         !Array.isArray(item) &&
         typeof (item as Record<string, unknown>).type === "string" &&
-        TOOL_RAW_TYPES.has((item as Record<string, unknown>).type as string)
+        TOOL_RAW_TYPES.has((item as Record<string, unknown>).type as string),
     )
   ) {
     return "";
@@ -569,7 +569,7 @@ function extractMessageContent(content: unknown): string {
 }
 
 function toRuntimeRoleForTokenEstimate(
-  role: string
+  role: string,
 ): "user" | "assistant" | "toolResult" {
   if (role === "tool" || role === "toolResult") {
     return "toolResult";
@@ -590,7 +590,7 @@ function isTextBlock(value: unknown): value is { type: "text"; text: string } {
 
 function toSyntheticMessagePartRecord(
   part: CreateMessagePartInput,
-  messageId: number
+  messageId: number,
 ): MessagePartRecord {
   return {
     partId: `estimate-part-${part.ordinal}`,
@@ -783,7 +783,7 @@ function buildMessageParts(params: {
             ...metadataRecord,
             type: rawBlockType,
           }
-        : metadataRecord ?? message.content[ordinal];
+        : (metadataRecord ?? message.content[ordinal]);
     const toolCallId =
       safeString(metadataRecord?.toolCallId) ??
       safeString(metadataRecord?.tool_call_id) ??
@@ -808,16 +808,16 @@ function buildMessageParts(params: {
         metadataRecord?.input !== undefined
           ? toJson(metadataRecord.input)
           : metadataRecord?.arguments !== undefined
-          ? toJson(metadataRecord.arguments)
-          : metadataRecord?.toolInput !== undefined
-          ? toJson(metadataRecord.toolInput)
-          : safeString(metadataRecord?.tool_input) ?? null,
+            ? toJson(metadataRecord.arguments)
+            : metadataRecord?.toolInput !== undefined
+              ? toJson(metadataRecord.toolInput)
+              : (safeString(metadataRecord?.tool_input) ?? null),
       toolOutput:
         metadataRecord?.output !== undefined
           ? toJson(metadataRecord.output)
           : metadataRecord?.toolOutput !== undefined
-          ? toJson(metadataRecord.toolOutput)
-          : safeString(metadataRecord?.tool_output) ?? null,
+            ? toJson(metadataRecord.toolOutput)
+            : (safeString(metadataRecord?.tool_output) ?? null),
       metadata: toJson({
         originalRole: role,
         toolCallId: topLevelToolCallId,
@@ -829,10 +829,10 @@ function buildMessageParts(params: {
             ? metadataRecord.originalByteSize
             : undefined,
         toolOutputExternalized: safeBoolean(
-          metadataRecord?.toolOutputExternalized
+          metadataRecord?.toolOutputExternalized,
         ),
         externalizationReason: safeString(
-          metadataRecord?.externalizationReason
+          metadataRecord?.externalizationReason,
         ),
         rawType: rawBlockType,
         raw: rawBlock,
@@ -883,10 +883,10 @@ function toStoredMessage(message: AgentMessage): StoredMessage {
     "content" in message
       ? extractMessageContent(message.content)
       : "output" in message
-      ? `$ ${(message as { command: string; output: string }).command}\n${
-          (message as { command: string; output: string }).output
-        }`
-      : "";
+        ? `$ ${(message as { command: string; output: string }).command}\n${
+            (message as { command: string; output: string }).output
+          }`
+        : "";
   const runtimeRole = toRuntimeRoleForTokenEstimate(message.role);
   const normalizedContent =
     "content" in message
@@ -912,7 +912,7 @@ function toStoredMessage(message: AgentMessage): StoredMessage {
 }
 
 function createBootstrapEntryHash(
-  message: StoredMessage | null
+  message: StoredMessage | null,
 ): string | null {
   if (!message) {
     return null;
@@ -937,8 +937,8 @@ function estimateMessageContentTokensForAfterTurn(content: unknown): number {
         typeof record.text === "string"
           ? record.text
           : typeof record.thinking === "string"
-          ? record.thinking
-          : "";
+            ? record.thinking
+            : "";
       if (text) {
         total += estimateTokens(text);
       }
@@ -953,7 +953,7 @@ function estimateMessageContentTokensForAfterTurn(content: unknown): number {
 }
 
 function estimateSessionTokenCountForAfterTurn(
-  messages: AgentMessage[]
+  messages: AgentMessage[],
 ): number {
   let total = 0;
   for (const message of messages) {
@@ -1017,7 +1017,7 @@ function parseBootstrapJsonl(
   raw: string,
   options?: {
     strict?: boolean;
-  }
+  },
 ): {
   messages: AgentMessage[];
   sawNonWhitespace: boolean;
@@ -1051,7 +1051,7 @@ function parseBootstrapJsonl(
 
 /** Load recoverable messages from a JSON/JSONL session file without full-file reads for JSONL. */
 async function readLeafPathMessages(
-  sessionFile: string
+  sessionFile: string,
 ): Promise<AgentMessage[]> {
   try {
     let sawNonWhitespace = false;
@@ -1115,7 +1115,7 @@ async function readLeafPathMessages(
  * inheriting the full raw history into a brand-new conversation.
  */
 function resolveBootstrapMaxTokens(
-  config: Pick<LcmConfig, "bootstrapMaxTokens" | "leafChunkTokens">
+  config: Pick<LcmConfig, "bootstrapMaxTokens" | "leafChunkTokens">,
 ): number {
   if (
     typeof config.bootstrapMaxTokens === "number" &&
@@ -1142,7 +1142,7 @@ function resolveBootstrapMaxTokens(
  */
 function trimBootstrapMessagesToBudget(
   messages: AgentMessage[],
-  maxTokens: number
+  maxTokens: number,
 ): AgentMessage[] {
   if (messages.length === 0) {
     return [];
@@ -1179,7 +1179,7 @@ function trimBootstrapMessagesToBudget(
 
 async function readFileSegment(
   sessionFile: string,
-  offset: number
+  offset: number,
 ): Promise<string | null> {
   let fh: FileHandle | null = null;
   try {
@@ -1204,7 +1204,7 @@ async function readLastJsonlEntryBeforeOffset(
   sessionFile: string,
   offset: number,
   messageOnly = false,
-  matcher?: (message: AgentMessage) => boolean
+  matcher?: (message: AgentMessage) => boolean,
 ): Promise<string | null> {
   const chunkSize = 16_384;
   const safeOffset = Math.max(0, Math.floor(offset));
@@ -1222,7 +1222,7 @@ async function readLastJsonlEntryBeforeOffset(
       if (trimmedEnd) {
         const newlineIndex = Math.max(
           trimmedEnd.lastIndexOf("\n"),
-          trimmedEnd.lastIndexOf("\r")
+          trimmedEnd.lastIndexOf("\r"),
         );
         if (newlineIndex >= 0) {
           const candidate = trimmedEnd.slice(newlineIndex + 1).trim();
@@ -1231,7 +1231,7 @@ async function readLastJsonlEntryBeforeOffset(
               let matchedMessage: AgentMessage | null = null;
               try {
                 matchedMessage = extractBootstrapMessageCandidate(
-                  JSON.parse(candidate)
+                  JSON.parse(candidate),
                 );
               } catch {
                 /* not valid JSON, skip */
@@ -1257,7 +1257,7 @@ async function readLastJsonlEntryBeforeOffset(
           let matchedMessage: AgentMessage | null = null;
           try {
             matchedMessage = extractBootstrapMessageCandidate(
-              JSON.parse(firstLine)
+              JSON.parse(firstLine),
             );
           } catch {
             /* not valid JSON */
@@ -1365,7 +1365,7 @@ export type RotateSessionStorageWithBackupResult =
     };
 
 function readBootstrapMessageFromJsonLine(
-  line: string | null
+  line: string | null,
 ): AgentMessage | null {
   if (!line) {
     return null;
@@ -1404,7 +1404,7 @@ export class LcmContextEngine implements ContextEngine {
   private retrieval: RetrievalEngine;
   private readonly db: DatabaseSync | null;
   private migrated = false;
-  private readonly fts5Available: boolean;
+  private fts5Available = false;
   private readonly ignoreSessionPatterns: RegExp[];
   private readonly statelessSessionPatterns: RegExp[];
   private sessionOperationQueues = new Map<
@@ -1445,15 +1445,15 @@ export class LcmContextEngine implements ContextEngine {
       | {
           conversationStore: IConversationStore;
           summaryStore: ISummaryStore;
-        }
+        },
   ) {
     this.deps = deps;
     this.config = deps.config;
     this.ignoreSessionPatterns = compileSessionPatterns(
-      this.config.ignoreSessionPatterns
+      this.config.ignoreSessionPatterns,
     );
     this.statelessSessionPatterns = compileSessionPatterns(
-      this.config.statelessSessionPatterns
+      this.config.statelessSessionPatterns,
     );
 
     // Custom stores path — host app manages persistence (Postgres, Supabase, etc.)
@@ -1504,26 +1504,26 @@ export class LcmContextEngine implements ContextEngine {
           .all() as Array<{ name: string }>;
         if (tables.length === 0) {
           this.deps.log.warn(
-            "[lcm] Migration completed but database has zero tables — DB may be non-functional"
+            "[lcm] Migration completed but database has zero tables — DB may be non-functional",
           );
         } else {
           migrationOk = true;
           this.deps.log.info(
             `[lcm] Migration run completed during engine init: duration=${formatDurationMs(
-              Date.now() - migrationStartedAt
-            )} fts5=${this.fts5Available}`
+              Date.now() - migrationStartedAt,
+            )} fts5=${this.fts5Available}`,
           );
           this.deps.log.debug(
             `[lcm] Migration successful — ${tables.length} tables: ${tables
               .map((t) => t.name)
-              .join(", ")}`
+              .join(", ")}`,
           );
         }
       } catch (err) {
         this.deps.log.error(
           `[lcm] Migration failed after ${formatDurationMs(
-            Date.now() - migrationStartedAt
-          )}: ${err instanceof Error ? err.message : String(err)}`
+            Date.now() - migrationStartedAt,
+          )}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
 
@@ -1552,12 +1552,12 @@ export class LcmContextEngine implements ContextEngine {
 
     if (!this.fts5Available && !isCustomStores) {
       this.deps.log.warn(
-        "[lcm] FTS5 unavailable in the current Node runtime; full_text search will fall back to LIKE and indexing is disabled"
+        "[lcm] FTS5 unavailable in the current Node runtime; full_text search will fall back to LIKE and indexing is disabled",
       );
     }
     if (this.config.ignoreSessionPatterns.length > 0) {
       const source = describeLcmConfigSource(
-        this.deps.configDiagnostics?.ignoreSessionPatternsSource ?? "default"
+        this.deps.configDiagnostics?.ignoreSessionPatternsSource ?? "default",
       );
       logStartupBannerOnce({
         key: "ignore-session-patterns",
@@ -1565,13 +1565,14 @@ export class LcmContextEngine implements ContextEngine {
         message: `[lcm] Ignoring sessions matching ${
           this.config.ignoreSessionPatterns.length
         } pattern(s) from ${source}: ${this.config.ignoreSessionPatterns.join(
-          ", "
+          ", ",
         )}`,
       });
     }
     if (this.config.statelessSessionPatterns.length > 0) {
       const source = describeLcmConfigSource(
-        this.deps.configDiagnostics?.statelessSessionPatternsSource ?? "default"
+        this.deps.configDiagnostics?.statelessSessionPatternsSource ??
+          "default",
       );
       const enforcement = this.config.skipStatelessSessions
         ? ""
@@ -1587,7 +1588,7 @@ export class LcmContextEngine implements ContextEngine {
     this.assembler = new ContextAssembler(
       this.conversationStore,
       this.summaryStore,
-      this.config.timezone
+      this.config.timezone,
     );
 
     const compactionConfig: CompactionConfig = {
@@ -1609,12 +1610,12 @@ export class LcmContextEngine implements ContextEngine {
       this.conversationStore,
       this.summaryStore,
       compactionConfig,
-      this.deps.log
+      this.deps.log,
     );
 
     this.retrieval = new RetrievalEngine(
       this.conversationStore,
-      this.summaryStore
+      this.summaryStore,
     );
   }
 
@@ -1636,7 +1637,7 @@ export class LcmContextEngine implements ContextEngine {
     const candidate =
       typeof params.sessionKey === "string" && params.sessionKey.trim()
         ? params.sessionKey.trim()
-        : params.sessionId?.trim() ?? "";
+        : (params.sessionId?.trim() ?? "");
     if (!candidate) {
       return false;
     }
@@ -1688,16 +1689,16 @@ export class LcmContextEngine implements ContextEngine {
       state.failures < this.config.circuitBreakerThreshold
     ) {
       this.deps.log.warn(
-        `[lcm] WARNING: compaction degraded — ${state.failures}/${this.config.circuitBreakerThreshold} consecutive auth failures for ${key}`
+        `[lcm] WARNING: compaction degraded — ${state.failures}/${this.config.circuitBreakerThreshold} consecutive auth failures for ${key}`,
       );
     }
     if (state.failures >= this.config.circuitBreakerThreshold) {
       state.openSince = Date.now();
       const cooldownMin = Math.round(
-        this.config.circuitBreakerCooldownMs / 60000
+        this.config.circuitBreakerCooldownMs / 60000,
       );
       this.deps.log.warn(
-        `[lcm] CIRCUIT BREAKER OPEN: compaction disabled for ${key}. Auto-retry in ${cooldownMin}m. LCM is operating in degraded mode.`
+        `[lcm] CIRCUIT BREAKER OPEN: compaction disabled for ${key}. Auto-retry in ${cooldownMin}m. LCM is operating in degraded mode.`,
       );
     }
   }
@@ -1709,7 +1710,7 @@ export class LcmContextEngine implements ContextEngine {
     }
     if (state.failures > 0 || state.openSince !== null) {
       this.deps.log.info(
-        `[lcm] compaction circuit breaker CLOSED: successful compaction for ${key} after ${state.failures} prior failures.`
+        `[lcm] compaction circuit breaker CLOSED: successful compaction for ${key} after ${state.failures} prior failures.`,
       );
     }
     this.resetCircuitBreaker(key);
@@ -1732,8 +1733,8 @@ export class LcmContextEngine implements ContextEngine {
     this.migrated = true;
     this.deps.log.info(
       `[lcm] ensureMigrated: completed in ${formatDurationMs(
-        Date.now() - migrationStartedAt
-      )}`
+        Date.now() - migrationStartedAt,
+      )}`,
     );
   }
 
@@ -1744,7 +1745,7 @@ export class LcmContextEngine implements ContextEngine {
   private async withSessionQueue<T>(
     queueKey: string,
     operation: () => Promise<T>,
-    options?: { operationName?: string; context?: string }
+    options?: { operationName?: string; context?: string },
   ): Promise<T> {
     const entry = this.sessionOperationQueues.get(queueKey);
     const previous = entry?.promise ?? Promise.resolve();
@@ -1771,8 +1772,8 @@ export class LcmContextEngine implements ContextEngine {
         `[lcm] ${
           options.operationName
         }: session queue acquired queueKey=${queueKey} queuedAhead=${queuedAhead} wait=${formatDurationMs(
-          waitMs
-        )}${detail}`
+          waitMs,
+        )}${detail}`,
       );
     }
     try {
@@ -1789,7 +1790,7 @@ export class LcmContextEngine implements ContextEngine {
   /** Prefer stable session keys for queue serialization when available. */
   private resolveSessionQueueKey(
     sessionId?: string,
-    sessionKey?: string
+    sessionKey?: string,
   ): string {
     const normalizedSessionKey = sessionKey?.trim();
     const normalizedSessionId = sessionId?.trim();
@@ -1844,7 +1845,7 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Treat a recent cache hit as still-hot for a couple of turns unless telemetry observed a later break. */
   private shouldApplyHotCacheHysteresis(
-    telemetry: ConversationCompactionTelemetryRecord | null
+    telemetry: ConversationCompactionTelemetryRecord | null,
   ): boolean {
     if (!telemetry?.lastObservedCacheHitAt) {
       return false;
@@ -1860,7 +1861,7 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Resolve the effective cache state the incremental compaction policy should react to. */
   private resolveCacheAwareState(
-    telemetry: ConversationCompactionTelemetryRecord | null
+    telemetry: ConversationCompactionTelemetryRecord | null,
   ): CacheState {
     if (!telemetry) {
       return "unknown";
@@ -1907,7 +1908,7 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Detect Anthropic-family sessions where local prompt rewrites can invalidate a hot prefix cache. */
   private isAnthropicPromptCacheFamily(
-    telemetry: ConversationCompactionTelemetryRecord | null
+    telemetry: ConversationCompactionTelemetryRecord | null,
   ): boolean {
     const provider = telemetry?.provider?.trim().toLowerCase() ?? "";
     const model = telemetry?.model?.trim().toLowerCase() ?? "";
@@ -1917,7 +1918,7 @@ export class LcmContextEngine implements ContextEngine {
   /** Determine whether the last prompt-cache touch is still within the active TTL window. */
   private isPromptCacheStillHot(
     telemetry: ConversationCompactionTelemetryRecord | null,
-    now: Date = new Date()
+    now: Date = new Date(),
   ): boolean {
     const ttlMs = this.resolvePromptCacheTtlMs(telemetry?.retention ?? null);
     if (!ttlMs) {
@@ -1937,7 +1938,7 @@ export class LcmContextEngine implements ContextEngine {
   /** Delay prompt-mutating deferred compaction while Anthropic's exact-prefix cache is still hot. */
   private shouldDelayPromptMutatingDeferredCompaction(
     telemetry: ConversationCompactionTelemetryRecord | null,
-    now: Date = new Date()
+    now: Date = new Date(),
   ): boolean {
     return (
       this.isAnthropicPromptCacheFamily(telemetry) &&
@@ -1948,7 +1949,7 @@ export class LcmContextEngine implements ContextEngine {
   /** Keep deferred Anthropic leaf debt moving once the TTL-safe cache hold has expired. */
   private shouldForceDeferredAnthropicLeafCompaction(
     telemetry: ConversationCompactionTelemetryRecord | null,
-    leafDecision: IncrementalCompactionDecision
+    leafDecision: IncrementalCompactionDecision,
   ): boolean {
     if (leafDecision.shouldCompact) {
       return false;
@@ -1973,7 +1974,7 @@ export class LcmContextEngine implements ContextEngine {
     if (
       !this.shouldForceDeferredAnthropicLeafCompaction(
         params.telemetry,
-        params.leafDecision
+        params.leafDecision,
       )
     ) {
       return params.leafDecision;
@@ -1982,7 +1983,7 @@ export class LcmContextEngine implements ContextEngine {
       ...params.leafDecision,
       maxPasses: Math.max(
         1,
-        this.config.cacheAwareCompaction.maxColdCacheCatchupPasses
+        this.config.cacheAwareCompaction.maxColdCacheCatchupPasses,
       ),
       allowCondensedPasses: true,
     };
@@ -2003,7 +2004,7 @@ export class LcmContextEngine implements ContextEngine {
     const budget = Math.max(1, Math.floor(params.tokenBudget));
     const safeBudget = Math.floor(
       budget *
-        (1 - this.config.cacheAwareCompaction.hotCacheBudgetHeadroomRatio)
+        (1 - this.config.cacheAwareCompaction.hotCacheBudgetHeadroomRatio),
     );
     return params.currentTokenCount <= safeBudget;
   }
@@ -2023,14 +2024,14 @@ export class LcmContextEngine implements ContextEngine {
       1,
       Math.min(
         MAX_BUDGET_TRIGGER_CATCHUP_PASSES,
-        Math.ceil(overage / chunkTokens)
-      )
+        Math.ceil(overage / chunkTokens),
+      ),
     );
   }
 
   /** Resolve bounded dynamic leaf chunk sizes from config and the active token budget. */
   private resolveDynamicLeafChunkBounds(
-    tokenBudget?: number
+    tokenBudget?: number,
   ): DynamicLeafChunkBounds {
     const floor = Math.max(1, Math.floor(this.config.leafChunkTokens));
     const configuredMax = this.config.dynamicLeafChunkTokens.enabled
@@ -2042,17 +2043,17 @@ export class LcmContextEngine implements ContextEngine {
       tokenBudget > 0
         ? Math.max(
             floor,
-            Math.floor(tokenBudget * this.config.contextThreshold)
+            Math.floor(tokenBudget * this.config.contextThreshold),
           )
         : configuredMax;
     const max = Math.max(floor, Math.min(configuredMax, budgetCap));
     const medium = Math.max(
       floor,
-      Math.min(max, Math.floor(floor * DYNAMIC_LEAF_CHUNK_MEDIUM_MULTIPLIER))
+      Math.min(max, Math.floor(floor * DYNAMIC_LEAF_CHUNK_MEDIUM_MULTIPLIER)),
     );
     const high = Math.max(
       floor,
-      Math.min(max, Math.floor(floor * DYNAMIC_LEAF_CHUNK_HIGH_MULTIPLIER))
+      Math.min(max, Math.floor(floor * DYNAMIC_LEAF_CHUNK_HIGH_MULTIPLIER)),
     );
     return { floor, medium, high, max };
   }
@@ -2100,7 +2101,7 @@ export class LcmContextEngine implements ContextEngine {
   /** Map an activity band to the corresponding working leaf chunk size. */
   private resolveLeafChunkTokensForBand(
     band: ActivityBand,
-    bounds: DynamicLeafChunkBounds
+    bounds: DynamicLeafChunkBounds,
   ): number {
     switch (band) {
       case "high":
@@ -2166,7 +2167,7 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Extract the current prompt-cache snapshot from runtime context, if present. */
   private readPromptCacheSnapshot(
-    runtimeContext?: Record<string, unknown>
+    runtimeContext?: Record<string, unknown>,
   ): PromptCacheSnapshot | null {
     const promptCache = asRecord(runtimeContext?.promptCache);
     const provider =
@@ -2230,7 +2231,7 @@ export class LcmContextEngine implements ContextEngine {
     const snapshot = this.readPromptCacheSnapshot(params.runtimeContext);
     const existing =
       await this.compactionTelemetryStore.getConversationCompactionTelemetry(
-        params.conversationId
+        params.conversationId,
       );
     if (!snapshot && params.rawTokensOutsideTail === undefined) {
       return existing;
@@ -2250,17 +2251,17 @@ export class LcmContextEngine implements ContextEngine {
       (snapshot.lastObservedCacheRead !== undefined ||
         snapshot.lastObservedCacheWrite !== undefined)
         ? now
-        : existing?.lastCacheTouchAt ?? null);
+        : (existing?.lastCacheTouchAt ?? null));
     const consecutiveColdObservations = snapshot?.sawExplicitBreak
       ? Math.max(
           existing?.consecutiveColdObservations ?? 0,
-          this.config.cacheAwareCompaction.coldCacheObservationThreshold
+          this.config.cacheAwareCompaction.coldCacheObservationThreshold,
         )
       : snapshot?.cacheState === "hot"
-      ? 0
-      : snapshot?.cacheState === "cold"
-      ? (existing?.consecutiveColdObservations ?? 0) + 1
-      : existing?.consecutiveColdObservations ?? 0;
+        ? 0
+        : snapshot?.cacheState === "cold"
+          ? (existing?.consecutiveColdObservations ?? 0) + 1
+          : (existing?.consecutiveColdObservations ?? 0);
     const lastActivityBand = this.classifyDynamicLeafActivityBand({
       lastActivityBand: existing?.lastActivityBand,
       tokensAccumulatedSinceLeafCompaction,
@@ -2280,10 +2281,10 @@ export class LcmContextEngine implements ContextEngine {
       lastObservedCacheHitAt:
         snapshot?.cacheState === "hot"
           ? now
-          : existing?.lastObservedCacheHitAt ?? null,
+          : (existing?.lastObservedCacheHitAt ?? null),
       lastObservedCacheBreakAt: snapshot?.sawExplicitBreak
         ? now
-        : existing?.lastObservedCacheBreakAt ?? null,
+        : (existing?.lastObservedCacheBreakAt ?? null),
       cacheState: snapshot?.cacheState ?? existing?.cacheState ?? "unknown",
       consecutiveColdObservations,
       retention: snapshot?.retention ?? existing?.retention ?? null,
@@ -2298,7 +2299,7 @@ export class LcmContextEngine implements ContextEngine {
     });
     const updated =
       await this.compactionTelemetryStore.getConversationCompactionTelemetry(
-        params.conversationId
+        params.conversationId,
       );
     if (updated) {
       this.deps.log.debug(
@@ -2320,7 +2321,7 @@ export class LcmContextEngine implements ContextEngine {
           updated.tokensAccumulatedSinceLeafCompaction
         } activityBand=${updated.lastActivityBand} rawTokensOutsideTail=${
           params.rawTokensOutsideTail ?? "null"
-        } tokenBudget=${params.tokenBudget ?? "null"}`
+        } tokenBudget=${params.tokenBudget ?? "null"}`,
       );
     }
     return updated;
@@ -2333,7 +2334,7 @@ export class LcmContextEngine implements ContextEngine {
   }): Promise<void> {
     const existing =
       await this.compactionTelemetryStore.getConversationCompactionTelemetry(
-        params.conversationId
+        params.conversationId,
       );
     await this.compactionTelemetryStore.upsertConversationCompactionTelemetry({
       conversationId: params.conversationId,
@@ -2359,7 +2360,7 @@ export class LcmContextEngine implements ContextEngine {
         params.conversationId
       } cacheState=${existing?.cacheState ?? "unknown"} activityBand=${
         params.activityBand ?? existing?.lastActivityBand ?? "low"
-      }`
+      }`,
     );
   }
 
@@ -2388,14 +2389,14 @@ export class LcmContextEngine implements ContextEngine {
       } preferredLeafChunkTokens=${
         params.preferredLeafChunkTokens
       } fallbackLeafChunkTokens=${params.fallbackLeafChunkTokens.join(
-        ","
+        ",",
       )} rawTokensOutsideTail=${params.rawTokensOutsideTail} threshold=${
         params.threshold
       } shouldCompact=${params.shouldCompact} maxPasses=${
         params.maxPasses
       } allowCondensedPasses=${params.allowCondensedPasses} reason=${
         params.reason
-      }`
+      }`,
     );
     return {
       shouldCompact: params.shouldCompact,
@@ -2419,7 +2420,7 @@ export class LcmContextEngine implements ContextEngine {
   }): Promise<IncrementalCompactionDecision> {
     const telemetry =
       await this.compactionTelemetryStore.getConversationCompactionTelemetry(
-        params.conversationId
+        params.conversationId,
       );
     const cacheState = this.config.cacheAwareCompaction.enabled
       ? this.resolveCacheAwareState(telemetry)
@@ -2438,8 +2439,8 @@ export class LcmContextEngine implements ContextEngine {
       this.config.dynamicLeafChunkTokens.enabled && cacheState === "hot"
         ? bounds.max
         : this.config.dynamicLeafChunkTokens.enabled
-        ? this.resolveLeafChunkTokensForBand(activityBand, bounds)
-        : bounds.floor;
+          ? this.resolveLeafChunkTokensForBand(activityBand, bounds)
+          : bounds.floor;
     const preferredLeafChunkTokens =
       this.config.cacheAwareCompaction.enabled &&
       (cacheState === "cold" || cacheState === "hot")
@@ -2451,7 +2452,7 @@ export class LcmContextEngine implements ContextEngine {
     });
     const leafTrigger = await this.compaction.evaluateLeafTrigger(
       params.conversationId,
-      triggerLeafChunkTokens
+      triggerLeafChunkTokens,
     );
     if (!leafTrigger.shouldCompact) {
       return this.logIncrementalCompactionDecision({
@@ -2473,7 +2474,7 @@ export class LcmContextEngine implements ContextEngine {
     const budgetDecision = await this.compaction.evaluate(
       params.conversationId,
       params.tokenBudget,
-      params.currentTokenCount
+      params.currentTokenCount,
     );
     if (budgetDecision.shouldCompact) {
       const maxPasses = this.resolveBudgetTriggerCatchupPasses({
@@ -2525,7 +2526,7 @@ export class LcmContextEngine implements ContextEngine {
       leafTrigger.rawTokensOutsideTail <
         Math.floor(
           leafTrigger.threshold *
-            this.config.cacheAwareCompaction.hotCachePressureFactor
+            this.config.cacheAwareCompaction.hotCachePressureFactor,
         )
     ) {
       return this.logIncrementalCompactionDecision({
@@ -2548,7 +2549,7 @@ export class LcmContextEngine implements ContextEngine {
       cacheState === "cold"
         ? Math.max(
             1,
-            this.config.cacheAwareCompaction.maxColdCacheCatchupPasses
+            this.config.cacheAwareCompaction.maxColdCacheCatchupPasses,
           )
         : 1;
     return this.logIncrementalCompactionDecision({
@@ -2585,7 +2586,7 @@ export class LcmContextEngine implements ContextEngine {
         params.conversationId
       } reason=${params.reason} tokenBudget=${
         params.tokenBudget
-      } currentTokenCount=${params.currentTokenCount ?? "null"}`
+      } currentTokenCount=${params.currentTokenCount ?? "null"}`,
     );
   }
 
@@ -2604,7 +2605,7 @@ export class LcmContextEngine implements ContextEngine {
   }): Promise<ContextEngineMaintenanceResult | null> {
     const maintenance =
       await this.compactionMaintenanceStore.getConversationCompactionMaintenance(
-        params.conversationId
+        params.conversationId,
       );
     if (!maintenance?.pending && !maintenance?.running) {
       return null;
@@ -2630,10 +2631,10 @@ export class LcmContextEngine implements ContextEngine {
       const resolvedTokenBudget = this.applyAssemblyBudgetCap(
         recordedTokenBudget != null
           ? Math.min(params.tokenBudget, recordedTokenBudget)
-          : params.tokenBudget
+          : params.tokenBudget,
       );
       const resolvedCurrentTokenCount = this.normalizeObservedTokenCount(
-        params.currentTokenCount ?? maintenance.currentTokenCount ?? undefined
+        params.currentTokenCount ?? maintenance.currentTokenCount ?? undefined,
       );
 
       const result =
@@ -2651,7 +2652,7 @@ export class LcmContextEngine implements ContextEngine {
           : await (async (): Promise<CompactResult> => {
               const telemetry =
                 await this.compactionTelemetryStore.getConversationCompactionTelemetry(
-                  params.conversationId
+                  params.conversationId,
                 );
               const leafDecision = await this.evaluateIncrementalCompaction({
                 conversationId: params.conversationId,
@@ -2682,7 +2683,7 @@ export class LcmContextEngine implements ContextEngine {
                     telemetry?.retention ?? "null"
                   } lastCacheTouchAt=${
                     telemetry?.lastCacheTouchAt?.toISOString() ?? "null"
-                  }`
+                  }`,
                 );
               }
               return this.executeLeafCompactionCore({
@@ -2707,7 +2708,7 @@ export class LcmContextEngine implements ContextEngine {
         finishedAt: new Date(),
         failureSummary: result.ok
           ? null
-          : result.reason ?? "deferred compaction failed",
+          : (result.reason ?? "deferred compaction failed"),
         keepPending:
           !result.ok ||
           result.reason === DEFERRED_COMPACTION_STILL_NEEDED_REASON,
@@ -2717,7 +2718,7 @@ export class LcmContextEngine implements ContextEngine {
           result.compacted ? "completed" : "skipped"
         } conversation=${params.conversationId} ${sessionLabel} changed=${
           result.compacted
-        } ok=${result.ok} reason=${result.reason ?? "none"}`
+        } ok=${result.ok} reason=${result.reason ?? "none"}`,
       );
       return {
         changed: result.compacted,
@@ -2735,7 +2736,7 @@ export class LcmContextEngine implements ContextEngine {
       this.deps.log.warn(
         `[lcm] maintain: deferred compaction failed conversation=${
           params.conversationId
-        } ${sessionLabel}: ${describeLogError(error)}`
+        } ${sessionLabel}: ${describeLogError(error)}`,
       );
       return {
         changed: false,
@@ -2769,7 +2770,7 @@ export class LcmContextEngine implements ContextEngine {
       async () => {
         const maintenance =
           await this.compactionMaintenanceStore.getConversationCompactionMaintenance(
-            params.conversationId
+            params.conversationId,
           );
         if (!maintenance?.pending && !maintenance?.running) {
           return;
@@ -2777,7 +2778,7 @@ export class LcmContextEngine implements ContextEngine {
 
         const telemetry =
           await this.compactionTelemetryStore.getConversationCompactionTelemetry(
-            params.conversationId
+            params.conversationId,
           );
         const promptOverflowEmergency =
           (params.currentTokenCount ?? 0) > params.tokenBudget;
@@ -2812,19 +2813,19 @@ export class LcmContextEngine implements ContextEngine {
             telemetry?.retention ?? "null"
           } lastCacheTouchAt=${
             telemetry?.lastCacheTouchAt?.toISOString() ?? "null"
-          }`
+          }`,
         );
       },
       {
         operationName: "assembleDeferredCompaction",
         context: sessionLabel,
-      }
+      },
     );
   }
 
   /** Run the actual compaction body without taking the per-session queue. */
   private async executeCompactionCore(
-    params: CompactionExecutionParams
+    params: CompactionExecutionParams,
   ): Promise<CompactResult> {
     const { force = false } = params;
     const legacyParams = asRecord(params.runtimeContext) ?? params.legacyParams;
@@ -2858,9 +2859,9 @@ export class LcmContextEngine implements ContextEngine {
         customInstructions: params.customInstructions,
         breakerScope: this.resolveSessionQueueKey(
           params.sessionId,
-          params.sessionKey
+          params.sessionKey,
         ),
-      }
+      },
     );
     if (breakerKey && this.isCircuitBreakerOpen(breakerKey)) {
       return {
@@ -2877,14 +2878,14 @@ export class LcmContextEngine implements ContextEngine {
           lp as {
             currentTokenCount?: unknown;
           }
-        ).currentTokenCount
+        ).currentTokenCount,
     );
     const decision =
       observedTokens !== undefined
         ? await this.compaction.evaluate(
             conversationId,
             tokenBudget,
-            observedTokens
+            observedTokens,
           )
         : await this.compaction.evaluate(conversationId, tokenBudget);
     const targetTokens =
@@ -2938,12 +2939,12 @@ export class LcmContextEngine implements ContextEngine {
             ? "provider auth failure after partial compaction"
             : "provider auth failure"
           : sweepResult.actionTaken
-          ? "compacted"
-          : manualCompactionRequested
-          ? "nothing to compact"
-          : liveContextStillExceedsTarget
-          ? "live context still exceeds target"
-          : "already under target",
+            ? "compacted"
+            : manualCompactionRequested
+              ? "nothing to compact"
+              : liveContextStillExceedsTarget
+                ? "live context still exceeds target"
+                : "already under target",
         result: {
           tokensBefore: decision.currentTokens,
           tokensAfter: sweepResult.tokensAfter,
@@ -2959,8 +2960,8 @@ export class LcmContextEngine implements ContextEngine {
     const convergenceTargetTokens = forceCompaction
       ? tokenBudget
       : params.compactionTarget === "threshold"
-      ? decision.threshold
-      : tokenBudget;
+        ? decision.threshold
+        : tokenBudget;
 
     // When forced (overflow recovery) and the caller did not supply an
     // observed token count, assume we are at least at the token budget so
@@ -2970,8 +2971,8 @@ export class LcmContextEngine implements ContextEngine {
       observedTokens !== undefined
         ? observedTokens
         : forceCompaction
-        ? tokenBudget
-        : undefined;
+          ? tokenBudget
+          : undefined;
     const compactResult = await this.compaction.compactUntilUnder({
       conversationId,
       tokenBudget,
@@ -3002,10 +3003,10 @@ export class LcmContextEngine implements ContextEngine {
           ? "provider auth failure after partial compaction"
           : "provider auth failure"
         : compactResult.success
-        ? didCompact
-          ? "compacted"
-          : "already under target"
-        : "could not reach target",
+          ? didCompact
+            ? "compacted"
+            : "already under target"
+          : "could not reach target",
       result: {
         tokensBefore: decision.currentTokens,
         tokensAfter: compactResult.finalTokens,
@@ -3019,7 +3020,7 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Resolve an LCM conversation id from a session key via the session store. */
   private async resolveConversationIdForSessionKey(
-    sessionKey: string
+    sessionKey: string,
   ): Promise<number | undefined> {
     const trimmedKey = sessionKey.trim();
     if (!trimmedKey) {
@@ -3034,9 +3035,8 @@ export class LcmContextEngine implements ContextEngine {
         return bySessionKey.conversationId;
       }
 
-      const runtimeSessionId = await this.deps.resolveSessionIdFromSessionKey(
-        trimmedKey
-      );
+      const runtimeSessionId =
+        await this.deps.resolveSessionIdFromSessionKey(trimmedKey);
       if (!runtimeSessionId) {
         return undefined;
       }
@@ -3082,7 +3082,7 @@ export class LcmContextEngine implements ContextEngine {
       return {
         summarize: lp.summarize as (
           text: string,
-          aggressive?: boolean
+          aggressive?: boolean,
         ) => Promise<string>,
         summaryModel: "unknown",
         breakerKey: `custom:${params.breakerScope}`,
@@ -3106,17 +3106,17 @@ export class LcmContextEngine implements ContextEngine {
         };
       }
       this.deps.log.error(
-        `[lcm] resolveSummarize: createLcmSummarizeFromLegacyParams returned undefined`
+        `[lcm] resolveSummarize: createLcmSummarizeFromLegacyParams returned undefined`,
       );
     } catch (err) {
       this.deps.log.error(
         `[lcm] resolveSummarize failed, using emergency fallback: ${describeLogError(
-          err
-        )}`
+          err,
+        )}`,
       );
     }
     this.deps.log.error(
-      `[lcm] resolveSummarize: FALLING BACK TO EMERGENCY TRUNCATION`
+      `[lcm] resolveSummarize: FALLING BACK TO EMERGENCY TRUNCATION`,
     );
     return {
       summarize: createEmergencyFallbackSummarize(),
@@ -3155,7 +3155,7 @@ export class LcmContextEngine implements ContextEngine {
       }
 
       this.largeFileTextSummarizer = async (
-        prompt: string
+        prompt: string,
       ): Promise<string | null> => {
         let summary: string;
         try {
@@ -3193,7 +3193,7 @@ export class LcmContextEngine implements ContextEngine {
   ];
 
   private static detectBase64ImageType(
-    base64Data: string
+    base64Data: string,
   ): { extension: string; mimeType: string } | null {
     for (const sig of LcmContextEngine.BASE64_IMAGE_MAGIC) {
       if (base64Data.startsWith(sig.prefix)) {
@@ -3205,7 +3205,7 @@ export class LcmContextEngine implements ContextEngine {
 
   private static isExternalizedImageReference(value: string): boolean {
     return /^\[(?:User|Tool|Assistant|Image) image: .*LCM file: file_[a-f0-9]{16}\]$/.test(
-      value.trim()
+      value.trim(),
     );
   }
 
@@ -3253,7 +3253,7 @@ export class LcmContextEngine implements ContextEngine {
     });
     const fileName = params.fileName ?? `image.${params.extension}`;
     const summary = `Image file (${params.extension.toUpperCase()}, ${byteSize.toLocaleString(
-      "en-US"
+      "en-US",
     )} bytes)${params.fileName ? ` — ${params.fileName}` : ""}`;
 
     await this.summaryStore.insertLargeFile({
@@ -3356,8 +3356,8 @@ export class LcmContextEngine implements ContextEngine {
       params.role === "tool"
         ? "Tool image"
         : params.role === "assistant"
-        ? "Assistant image"
-        : "Image";
+          ? "Assistant image"
+          : "Image";
     const fileName = `${params.role}-image.${detected.extension}`;
 
     const externalized = await this.externalizeImage({
@@ -3732,10 +3732,10 @@ export class LcmContextEngine implements ContextEngine {
       const textSource = isPlainTextToolResult
         ? record.text
         : record.output !== undefined
-        ? record.output
-        : record.content !== undefined
-        ? record.content
-        : record;
+          ? record.output
+          : record.content !== undefined
+            ? record.content
+            : record;
       const extractedText = extractStructuredText(textSource);
       if (
         typeof extractedText === "string" &&
@@ -3860,8 +3860,8 @@ export class LcmContextEngine implements ContextEngine {
     if (historicalMessages.length === 0) {
       this.deps.log.info(
         `[lcm] reconcileSessionTail: skipped for ${sessionContext} duration=${formatDurationMs(
-          Date.now() - startedAt
-        )} historicalMessages=0 reason=empty-history`
+          Date.now() - startedAt,
+        )} historicalMessages=0 reason=empty-history`,
       );
       return {
         blockedByImportCap: false,
@@ -3870,14 +3870,13 @@ export class LcmContextEngine implements ContextEngine {
       };
     }
 
-    const latestDbMessage = await this.conversationStore.getLastMessage(
-      conversationId
-    );
+    const latestDbMessage =
+      await this.conversationStore.getLastMessage(conversationId);
     if (!latestDbMessage) {
       this.deps.log.info(
         `[lcm] reconcileSessionTail: skipped for ${sessionContext} duration=${formatDurationMs(
-          Date.now() - startedAt
-        )} historicalMessages=${historicalMessages.length} reason=no-db-tail`
+          Date.now() - startedAt,
+        )} historicalMessages=${historicalMessages.length} reason=no-db-tail`,
       );
       return {
         blockedByImportCap: false,
@@ -3887,7 +3886,7 @@ export class LcmContextEngine implements ContextEngine {
     }
 
     const storedHistoricalMessages = historicalMessages.map((message) =>
-      toStoredMessage(message)
+      toStoredMessage(message),
     );
 
     // Fast path: one tail comparison for the common in-sync case.
@@ -3895,7 +3894,7 @@ export class LcmContextEngine implements ContextEngine {
       storedHistoricalMessages[storedHistoricalMessages.length - 1];
     const latestIdentity = messageIdentity(
       latestDbMessage.role,
-      latestDbMessage.content
+      latestDbMessage.content,
     );
     if (
       latestIdentity ===
@@ -3905,7 +3904,7 @@ export class LcmContextEngine implements ContextEngine {
         await this.conversationStore.countMessagesByIdentity(
           conversationId,
           latestDbMessage.role,
-          latestDbMessage.content
+          latestDbMessage.content,
         );
       let historicalOccurrences = 0;
       for (const stored of storedHistoricalMessages) {
@@ -3916,10 +3915,10 @@ export class LcmContextEngine implements ContextEngine {
       if (dbOccurrences === historicalOccurrences) {
         this.deps.log.info(
           `[lcm] reconcileSessionTail: fast path for ${sessionContext} duration=${formatDurationMs(
-            Date.now() - startedAt
+            Date.now() - startedAt,
           )} historicalMessages=${
             historicalMessages.length
-          } importedMessages=0 overlap=true`
+          } importedMessages=0 overlap=true`,
         );
         return {
           blockedByImportCap: false,
@@ -3937,7 +3936,7 @@ export class LcmContextEngine implements ContextEngine {
       const identity = messageIdentity(stored.role, stored.content);
       historicalIdentityTotals.set(
         identity,
-        (historicalIdentityTotals.get(identity) ?? 0) + 1
+        (historicalIdentityTotals.get(identity) ?? 0) + 1,
       );
     }
 
@@ -3952,7 +3951,7 @@ export class LcmContextEngine implements ContextEngine {
       const exists = await this.conversationStore.hasMessage(
         conversationId,
         stored.role,
-        stored.content
+        stored.content,
       );
       historicalIdentityCountsAfterIndex.set(identity, seenAfter + 1);
       if (!exists) {
@@ -3965,7 +3964,7 @@ export class LcmContextEngine implements ContextEngine {
           await this.conversationStore.countMessagesByIdentity(
             conversationId,
             stored.role,
-            stored.content
+            stored.content,
           );
         dbIdentityCounts.set(identity, dbCountForIdentity);
       }
@@ -3983,10 +3982,10 @@ export class LcmContextEngine implements ContextEngine {
     if (anchorIndex < 0) {
       this.deps.log.info(
         `[lcm] reconcileSessionTail: no anchor for ${sessionContext} duration=${formatDurationMs(
-          Date.now() - startedAt
+          Date.now() - startedAt,
         )} historicalMessages=${
           historicalMessages.length
-        } importedMessages=0 overlap=false`
+        } importedMessages=0 overlap=false`,
       );
       return {
         blockedByImportCap: false,
@@ -3997,10 +3996,10 @@ export class LcmContextEngine implements ContextEngine {
     if (anchorIndex >= historicalMessages.length - 1) {
       this.deps.log.info(
         `[lcm] reconcileSessionTail: anchor at tip for ${sessionContext} duration=${formatDurationMs(
-          Date.now() - startedAt
+          Date.now() - startedAt,
         )} historicalMessages=${
           historicalMessages.length
-        } importedMessages=0 overlap=true`
+        } importedMessages=0 overlap=true`,
       );
       return {
         blockedByImportCap: false,
@@ -4011,22 +4010,21 @@ export class LcmContextEngine implements ContextEngine {
 
     const missingTail = historicalMessages.slice(anchorIndex + 1);
 
-    const existingDbCount = await this.conversationStore.getMessageCount(
-      conversationId
-    );
+    const existingDbCount =
+      await this.conversationStore.getMessageCount(conversationId);
     if (
       existingDbCount > 0 &&
       missingTail.length > Math.max(existingDbCount * 0.2, 50)
     ) {
       this.deps.log.warn(
-        `[lcm] reconcileSessionTail: import cap exceeded for ${sessionContext} — would import ${missingTail.length} messages (existing: ${existingDbCount}). Aborting to prevent flood.`
+        `[lcm] reconcileSessionTail: import cap exceeded for ${sessionContext} — would import ${missingTail.length} messages (existing: ${existingDbCount}). Aborting to prevent flood.`,
       );
       this.deps.log.info(
         `[lcm] reconcileSessionTail: blocked for ${sessionContext} duration=${formatDurationMs(
-          Date.now() - startedAt
+          Date.now() - startedAt,
         )} historicalMessages=${historicalMessages.length} missingTail=${
           missingTail.length
-        } existingDbCount=${existingDbCount}`
+        } existingDbCount=${existingDbCount}`,
       );
       return {
         blockedByImportCap: true,
@@ -4049,12 +4047,12 @@ export class LcmContextEngine implements ContextEngine {
 
     this.deps.log.info(
       `[lcm] reconcileSessionTail: slow path for ${sessionContext} duration=${formatDurationMs(
-        Date.now() - startedAt
+        Date.now() - startedAt,
       )} historicalMessages=${
         historicalMessages.length
       } anchorIndex=${anchorIndex} missingTail=${
         missingTail.length
-      } importedMessages=${importedMessages}`
+      } importedMessages=${importedMessages}`,
     );
     return { blockedByImportCap: false, importedMessages, hasOverlap: true };
   }
@@ -4073,7 +4071,7 @@ export class LcmContextEngine implements ContextEngine {
     fileStats?: { size: number; mtimeMs: number };
   }): Promise<void> {
     const latestDbMessage = await this.conversationStore.getLastMessage(
-      params.conversationId
+      params.conversationId,
     );
     const fileStats = params.fileStats ?? (await stat(params.sessionFile));
     await this.summaryStore.upsertConversationBootstrapState({
@@ -4133,7 +4131,7 @@ export class LcmContextEngine implements ContextEngine {
       async () =>
         this.conversationStore.withTransaction(async () => {
           const persistBootstrapState = async (
-            conversationId: number
+            conversationId: number,
           ): Promise<void> => {
             await this.refreshBootstrapState({
               conversationId,
@@ -4156,15 +4154,14 @@ export class LcmContextEngine implements ContextEngine {
               params.sessionId,
               {
                 sessionKey: params.sessionKey,
-              }
+              },
             );
           const conversationId = conversation.conversationId;
-          let existingCount = await this.conversationStore.getMessageCount(
-            conversationId
-          );
+          let existingCount =
+            await this.conversationStore.getMessageCount(conversationId);
           let bootstrapState =
             await this.summaryStore.getConversationBootstrapState(
-              conversationId
+              conversationId,
             );
 
           if (
@@ -4172,7 +4169,7 @@ export class LcmContextEngine implements ContextEngine {
             bootstrapState.sessionFilePath !== params.sessionFile
           ) {
             this.deps.log.warn(
-              `[lcm] bootstrap: session file rotated conversation=${conversationId} ${sessionLabel} oldFile=${bootstrapState.sessionFilePath} newFile=${params.sessionFile}`
+              `[lcm] bootstrap: session file rotated conversation=${conversationId} ${sessionLabel} oldFile=${bootstrapState.sessionFilePath} newFile=${params.sessionFile}`,
             );
             // A rotated session file invalidates every piece of cached state
             // keyed to the old path: the on-disk bootstrap checkpoint row, the
@@ -4193,13 +4190,13 @@ export class LcmContextEngine implements ContextEngine {
           ) {
             if (!conversation.bootstrappedAt) {
               await this.conversationStore.markConversationBootstrapped(
-                conversationId
+                conversationId,
               );
             }
             this.deps.log.info(
               `[lcm] bootstrap: checkpoint hit conversation=${conversationId} ${sessionLabel} existingCount=${existingCount} duration=${formatDurationMs(
-                Date.now() - startedAt
-              )}`
+                Date.now() - startedAt,
+              )}`,
             );
             return {
               bootstrapped: false,
@@ -4216,9 +4213,8 @@ export class LcmContextEngine implements ContextEngine {
             sessionFileSize > bootstrapState.lastSeenSize &&
             sessionFileMtimeMs >= bootstrapState.lastSeenMtimeMs
           ) {
-            const latestDbMessage = await this.conversationStore.getLastMessage(
-              conversationId
-            );
+            const latestDbMessage =
+              await this.conversationStore.getLastMessage(conversationId);
             const latestDbHash = latestDbMessage
               ? createBootstrapEntryHash({
                   role: latestDbMessage.role,
@@ -4245,7 +4241,7 @@ export class LcmContextEngine implements ContextEngine {
                   true,
                   (message) =>
                     createBootstrapEntryHash(toStoredMessage(message)) ===
-                    frontierHash
+                    frontierHash,
                 )
               : null;
             const tailEntryMessage =
@@ -4266,7 +4262,7 @@ export class LcmContextEngine implements ContextEngine {
               if (appended.canUseAppendOnly) {
                 if (!conversation.bootstrappedAt) {
                   await this.conversationStore.markConversationBootstrapped(
-                    conversationId
+                    conversationId,
                   );
                 }
 
@@ -4287,8 +4283,8 @@ export class LcmContextEngine implements ContextEngine {
                   `[lcm] bootstrap: append-only conversation=${conversationId} ${sessionLabel} existingCount=${existingCount} appendedMessages=${
                     appended.messages.length
                   } importedMessages=${importedMessages} duration=${formatDurationMs(
-                    Date.now() - startedAt
-                  )}`
+                    Date.now() - startedAt,
+                  )}`,
                 );
 
                 if (importedMessages > 0) {
@@ -4323,8 +4319,8 @@ export class LcmContextEngine implements ContextEngine {
               await persistBootstrapState(conversationId);
               this.deps.log.info(
                 `[lcm] bootstrap: skipped full read (file unchanged) conversation=${conversationId} ${sessionLabel} duration=${formatDurationMs(
-                  Date.now() - startedAt
-                )}`
+                  Date.now() - startedAt,
+                )}`,
               );
               return {
                 bootstrapped: false,
@@ -4335,12 +4331,12 @@ export class LcmContextEngine implements ContextEngine {
           }
 
           const historicalMessages = await readLeafPathMessages(
-            params.sessionFile
+            params.sessionFile,
           );
           this.deps.log.info(
             `[lcm] bootstrap: full transcript read conversation=${conversationId} ${sessionLabel} existingCount=${existingCount} historicalMessages=${
               historicalMessages.length
-            } duration=${formatDurationMs(Date.now() - startedAt)}`
+            } duration=${formatDurationMs(Date.now() - startedAt)}`,
           );
 
           // First-time import path: no LCM rows yet, so seed directly from the
@@ -4348,12 +4344,12 @@ export class LcmContextEngine implements ContextEngine {
           if (existingCount === 0) {
             const bootstrapMessages = trimBootstrapMessagesToBudget(
               historicalMessages,
-              resolveBootstrapMaxTokens(this.config)
+              resolveBootstrapMaxTokens(this.config),
             );
 
             if (bootstrapMessages.length === 0) {
               await this.conversationStore.markConversationBootstrapped(
-                conversationId
+                conversationId,
               );
               await persistBootstrapState(conversationId);
               return {
@@ -4376,15 +4372,14 @@ export class LcmContextEngine implements ContextEngine {
               };
             });
 
-            const inserted = await this.conversationStore.createMessagesBulk(
-              bulkInput
-            );
+            const inserted =
+              await this.conversationStore.createMessagesBulk(bulkInput);
             await this.summaryStore.appendContextMessages(
               conversationId,
-              inserted.map((record) => record.messageId)
+              inserted.map((record) => record.messageId),
             );
             await this.conversationStore.markConversationBootstrapped(
-              conversationId
+              conversationId,
             );
 
             // Prune HEARTBEAT_OK turns from the freshly imported data
@@ -4392,7 +4387,7 @@ export class LcmContextEngine implements ContextEngine {
               const pruned = await this.pruneHeartbeatOkTurns(conversationId);
               if (pruned > 0) {
                 this.deps.log.info(
-                  `[lcm] bootstrap: pruned ${pruned} HEARTBEAT_OK messages from conversation ${conversationId}`
+                  `[lcm] bootstrap: pruned ${pruned} HEARTBEAT_OK messages from conversation ${conversationId}`,
                 );
               }
             }
@@ -4403,7 +4398,7 @@ export class LcmContextEngine implements ContextEngine {
                 inserted.length
               } sourceMessages=${
                 historicalMessages.length
-              } duration=${formatDurationMs(Date.now() - startedAt)}`
+              } duration=${formatDurationMs(Date.now() - startedAt)}`,
             );
 
             return {
@@ -4425,7 +4420,7 @@ export class LcmContextEngine implements ContextEngine {
               reconcile.importedMessages
             } overlap=${reconcile.hasOverlap} blockedByImportCap=${
               reconcile.blockedByImportCap
-            } duration=${formatDurationMs(Date.now() - startedAt)}`
+            } duration=${formatDurationMs(Date.now() - startedAt)}`,
           );
 
           if (reconcile.blockedByImportCap) {
@@ -4438,7 +4433,7 @@ export class LcmContextEngine implements ContextEngine {
 
           if (!conversation.bootstrappedAt) {
             await this.conversationStore.markConversationBootstrapped(
-              conversationId
+              conversationId,
             );
           }
 
@@ -4471,7 +4466,7 @@ export class LcmContextEngine implements ContextEngine {
               : "conversation already has messages",
           };
         }),
-      { operationName: "bootstrap", context: sessionLabel }
+      { operationName: "bootstrap", context: sessionLabel },
     );
 
     // Post-bootstrap pruning: clean HEARTBEAT_OK turns that were already
@@ -4485,7 +4480,7 @@ export class LcmContextEngine implements ContextEngine {
           });
         if (conversation) {
           const pruned = await this.pruneHeartbeatOkTurns(
-            conversation.conversationId
+            conversation.conversationId,
           );
           if (pruned > 0) {
             await this.refreshBootstrapState({
@@ -4493,13 +4488,13 @@ export class LcmContextEngine implements ContextEngine {
               sessionFile: params.sessionFile,
             });
             this.deps.log.info(
-              `[lcm] bootstrap: retroactively pruned ${pruned} HEARTBEAT_OK messages from conversation ${conversation.conversationId}`
+              `[lcm] bootstrap: retroactively pruned ${pruned} HEARTBEAT_OK messages from conversation ${conversation.conversationId}`,
             );
           }
         }
       } catch (err) {
         this.deps.log.warn(
-          `[lcm] bootstrap: heartbeat pruning failed: ${describeLogError(err)}`
+          `[lcm] bootstrap: heartbeat pruning failed: ${describeLogError(err)}`,
         );
       }
     }
@@ -4509,7 +4504,7 @@ export class LcmContextEngine implements ContextEngine {
         result.bootstrapped
       } importedMessages=${result.importedMessages} reason=${
         result.reason ?? "none"
-      } duration=${formatDurationMs(Date.now() - startedAt)}`
+      } duration=${formatDurationMs(Date.now() - startedAt)}`,
     );
     return result;
   }
@@ -4529,7 +4524,7 @@ export class LcmContextEngine implements ContextEngine {
   private async deduplicateAfterTurnBatch(
     sessionId: string,
     sessionKey: string | undefined,
-    batch: AgentMessage[]
+    batch: AgentMessage[],
   ): Promise<AgentMessage[]> {
     if (batch.length === 0) return batch;
 
@@ -4537,14 +4532,13 @@ export class LcmContextEngine implements ContextEngine {
       {
         sessionId,
         sessionKey,
-      }
+      },
     );
     if (!conversation) return batch;
 
     const conversationId = conversation.conversationId;
-    const storedMessageCount = await this.conversationStore.getMessageCount(
-      conversationId
-    );
+    const storedMessageCount =
+      await this.conversationStore.getMessageCount(conversationId);
     if (storedMessageCount === 0 || storedMessageCount > batch.length) {
       return batch;
     }
@@ -4552,9 +4546,8 @@ export class LcmContextEngine implements ContextEngine {
     // Aligned-tail check: DB's last message must match the message at the
     // exact replay boundary in the incoming batch. This replaces the
     // hasMessage() check which could false-positive on any repeated content.
-    const lastDbMessage = await this.conversationStore.getLastMessage(
-      conversationId
-    );
+    const lastDbMessage =
+      await this.conversationStore.getLastMessage(conversationId);
     if (!lastDbMessage) return batch;
 
     const storedBatch = batch.map((m) => toStoredMessage(m));
@@ -4572,7 +4565,7 @@ export class LcmContextEngine implements ContextEngine {
       conversationId,
       {
         limit: storedMessageCount,
-      }
+      },
     );
     if (storedMessages.length !== storedMessageCount) {
       return batch;
@@ -4583,7 +4576,7 @@ export class LcmContextEngine implements ContextEngine {
       if (
         messageIdentity(
           storedConversationMessage.role,
-          storedConversationMessage.content
+          storedConversationMessage.content,
         ) !== messageIdentity(incomingMessage.role, incomingMessage.content)
       ) {
         return batch;
@@ -4600,7 +4593,7 @@ export class LcmContextEngine implements ContextEngine {
    * the canonical replacement content.
    */
   private async buildTranscriptGcReplacementMessage(
-    messageId: number
+    messageId: number,
   ): Promise<AgentMessage | null> {
     const message = await this.conversationStore.getMessageById(messageId);
     if (!message) {
@@ -4685,11 +4678,11 @@ export class LcmContextEngine implements ContextEngine {
           null;
         const maintenance =
           await this.compactionMaintenanceStore.getConversationCompactionMaintenance(
-            conversation.conversationId
+            conversation.conversationId,
           );
         const telemetry =
           await this.compactionTelemetryStore.getConversationCompactionTelemetry(
-            conversation.conversationId
+            conversation.conversationId,
           );
         if (params.runtimeContext?.allowDeferredCompactionExecution === true) {
           const runtimeTokenBudget = (() => {
@@ -4714,7 +4707,7 @@ export class LcmContextEngine implements ContextEngine {
                 telemetry?.retention ?? "null"
               } lastCacheTouchAt=${
                 telemetry?.lastCacheTouchAt?.toISOString() ?? "null"
-              }`
+              }`,
             );
           } else {
             deferredCompactionResult = await this.consumeDeferredCompactionDebt(
@@ -4726,17 +4719,17 @@ export class LcmContextEngine implements ContextEngine {
                 currentTokenCount:
                   typeof params.runtimeContext?.currentTokenCount === "number"
                     ? Math.floor(
-                        params.runtimeContext.currentTokenCount as number
+                        params.runtimeContext.currentTokenCount as number,
                       )
                     : undefined,
                 runtimeContext: params.runtimeContext,
                 legacyParams: asRecord(params.runtimeContext),
-              }
+              },
             );
           }
         } else if (maintenance?.pending || maintenance?.running) {
           this.deps.log.info(
-            `[lcm] maintain: deferred compaction debt pending conversation=${conversation.conversationId} ${sessionLabel} but host runtimeContext.allowDeferredCompactionExecution is disabled`
+            `[lcm] maintain: deferred compaction debt pending conversation=${conversation.conversationId} ${sessionLabel} but host runtimeContext.allowDeferredCompactionExecution is disabled`,
           );
         }
 
@@ -4768,15 +4761,15 @@ export class LcmContextEngine implements ContextEngine {
           params.runtimeContext.rewriteTranscriptEntries;
         const candidates = await this.summaryStore.listTranscriptGcCandidates(
           conversation.conversationId,
-          { limit: TRANSCRIPT_GC_BATCH_SIZE }
+          { limit: TRANSCRIPT_GC_BATCH_SIZE },
         );
         if (candidates.length === 0) {
           this.deps.log.info(
             `[lcm] maintain: no transcript GC candidates conversation=${
               conversation.conversationId
             } ${sessionLabel} duration=${formatDurationMs(
-              Date.now() - startedAt
-            )}`
+              Date.now() - startedAt,
+            )}`,
           );
           return (
             deferredCompactionResult ?? {
@@ -4818,7 +4811,7 @@ export class LcmContextEngine implements ContextEngine {
               conversation.conversationId
             } ${sessionLabel} candidates=${
               candidates.length
-            } duration=${formatDurationMs(Date.now() - startedAt)}`
+            } duration=${formatDurationMs(Date.now() - startedAt)}`,
           );
           return (
             deferredCompactionResult ?? {
@@ -4843,8 +4836,8 @@ export class LcmContextEngine implements ContextEngine {
           } catch (e) {
             this.deps.log.warn(
               `[lcm] Failed to update bootstrap checkpoint after maintain: ${describeLogError(
-                e
-              )}`
+                e,
+              )}`,
             );
           }
         }
@@ -4866,12 +4859,12 @@ export class LcmContextEngine implements ContextEngine {
           } changed=${combinedResult.changed} rewrittenEntries=${
             combinedResult.rewrittenEntries
           } bytesFreed=${combinedResult.bytesFreed} duration=${formatDurationMs(
-            Date.now() - startedAt
-          )}`
+            Date.now() - startedAt,
+          )}`,
         );
         return combinedResult;
       },
-      { operationName: "maintain", context: sessionLabel }
+      { operationName: "maintain", context: sessionLabel },
     );
   }
   private async ingestSingle(params: {
@@ -4897,8 +4890,8 @@ export class LcmContextEngine implements ContextEngine {
         typeof topLevel.stopReason === "string"
           ? topLevel.stopReason
           : typeof topLevel.stop_reason === "string"
-          ? topLevel.stop_reason
-          : undefined;
+            ? topLevel.stop_reason
+            : undefined;
       if (stopReason === "error" || stopReason === "aborted") {
         const content = topLevel.content;
         const isEmpty =
@@ -4919,7 +4912,7 @@ export class LcmContextEngine implements ContextEngine {
       sessionId,
       {
         sessionKey,
-      }
+      },
     );
     const conversationId = conversation.conversationId;
 
@@ -4998,13 +4991,13 @@ export class LcmContextEngine implements ContextEngine {
         sessionId,
         message: messageForParts,
         fallbackContent: stored.content,
-      })
+      }),
     );
 
     // Append to context items so assembler can see it
     await this.summaryStore.appendContextMessage(
       conversationId,
-      msgRecord.messageId
+      msgRecord.messageId,
     );
 
     return { ingested: true };
@@ -5039,7 +5032,7 @@ export class LcmContextEngine implements ContextEngine {
             ? [`sessionKey=${params.sessionKey.trim()}`]
             : []),
         ].join(" "),
-      }
+      },
     );
   }
 
@@ -5090,7 +5083,7 @@ export class LcmContextEngine implements ContextEngine {
             : []),
           `messages=${params.messages.length}`,
         ].join(" "),
-      }
+      },
     );
   }
 
@@ -5128,7 +5121,7 @@ export class LcmContextEngine implements ContextEngine {
               this.deps.log.warn(
                 `[lcm] afterTurn: failed to persist deferred compaction retry for ${
                   params.sessionLabel
-                }: ${describeLogError(err)}`
+                }: ${describeLogError(err)}`,
               );
             }
           };
@@ -5158,7 +5151,7 @@ export class LcmContextEngine implements ContextEngine {
                 this.deps.log.warn(
                   `[lcm] afterTurn: bootstrap checkpoint refresh failed for ${
                     params.sessionLabel
-                  }: ${describeLogError(err)}`
+                  }: ${describeLogError(err)}`,
                 );
               }
               return;
@@ -5169,20 +5162,20 @@ export class LcmContextEngine implements ContextEngine {
             this.deps.log.warn(
               `[lcm] afterTurn: inline leaf compaction failed for ${
                 params.sessionLabel
-              }: ${describeLogError(err)}`
+              }: ${describeLogError(err)}`,
             );
           }
         },
         {
           operationName: "afterTurnLeafCompaction",
           context: params.sessionLabel,
-        }
+        },
       );
     } catch (err) {
       this.deps.log.warn(
         `[lcm] afterTurn: failed to queue inline leaf compaction for ${
           params.sessionLabel
-        }: ${describeLogError(err)}`
+        }: ${describeLogError(err)}`,
       );
     }
   }
@@ -5228,7 +5221,7 @@ export class LcmContextEngine implements ContextEngine {
     const dedupedNewMessages = await this.deduplicateAfterTurnBatch(
       params.sessionId,
       params.sessionKey,
-      newMessages
+      newMessages,
     );
 
     const ingestBatch: AgentMessage[] = [];
@@ -5244,7 +5237,7 @@ export class LcmContextEngine implements ContextEngine {
       this.deps.log.info(
         `[lcm] afterTurn: nothing to ingest ${sessionLabel} newMessages=${
           newMessages.length
-        } duration=${formatDurationMs(Date.now() - startedAt)}`
+        } duration=${formatDurationMs(Date.now() - startedAt)}`,
       );
       return;
     }
@@ -5260,8 +5253,8 @@ export class LcmContextEngine implements ContextEngine {
       // Never compact a stale or partially ingested frontier.
       this.deps.log.error(
         `[lcm] afterTurn: ingest failed, skipping compaction: ${describeLogError(
-          err
-        )}`
+          err,
+        )}`,
       );
       return;
     }
@@ -5275,7 +5268,7 @@ export class LcmContextEngine implements ContextEngine {
           });
         if (conversation) {
           const pruned = await this.pruneHeartbeatOkTurns(
-            conversation.conversationId
+            conversation.conversationId,
           );
           if (pruned > 0) {
             const sessionContext = this.formatSessionLogContext({
@@ -5291,19 +5284,19 @@ export class LcmContextEngine implements ContextEngine {
             } catch (err) {
               this.deps.log.warn(
                 `[lcm] afterTurn: heartbeat pruning checkpoint refresh failed for ${sessionContext}: ${describeLogError(
-                  err
-                )}`
+                  err,
+                )}`,
               );
             }
             this.deps.log.info(
-              `[lcm] afterTurn: pruned ${pruned} heartbeat ack messages for ${sessionContext}`
+              `[lcm] afterTurn: pruned ${pruned} heartbeat ack messages for ${sessionContext}`,
             );
             return;
           }
         }
       } catch (err) {
         this.deps.log.warn(
-          `[lcm] afterTurn: heartbeat pruning failed: ${describeLogError(err)}`
+          `[lcm] afterTurn: heartbeat pruning failed: ${describeLogError(err)}`,
         );
       }
     }
@@ -5318,28 +5311,28 @@ export class LcmContextEngine implements ContextEngine {
       legacyParams,
     });
     const tokenBudget = this.applyAssemblyBudgetCap(
-      resolvedTokenBudget ?? DEFAULT_AFTER_TURN_TOKEN_BUDGET
+      resolvedTokenBudget ?? DEFAULT_AFTER_TURN_TOKEN_BUDGET,
     );
     if (resolvedTokenBudget === undefined) {
       this.deps.log.warn(
-        `[lcm] afterTurn: tokenBudget not provided; using default ${DEFAULT_AFTER_TURN_TOKEN_BUDGET}`
+        `[lcm] afterTurn: tokenBudget not provided; using default ${DEFAULT_AFTER_TURN_TOKEN_BUDGET}`,
       );
     }
 
     const liveContextTokens = estimateSessionTokenCountForAfterTurn(
-      params.messages
+      params.messages,
     );
     const conversation = await this.conversationStore.getConversationForSession(
       {
         sessionId: params.sessionId,
         sessionKey: params.sessionKey,
-      }
+      },
     );
     if (!conversation) {
       this.deps.log.info(
         `[lcm] afterTurn: conversation lookup missed ${sessionLabel} ingestBatch=${
           ingestBatch.length
-        } duration=${formatDurationMs(Date.now() - startedAt)}`
+        } duration=${formatDurationMs(Date.now() - startedAt)}`,
       );
       return;
     }
@@ -5353,13 +5346,13 @@ export class LcmContextEngine implements ContextEngine {
       } catch (err) {
         this.deps.log.warn(
           `[lcm] afterTurn: bootstrap checkpoint refresh failed for ${sessionLabel}: ${describeLogError(
-            err
-          )}`
+            err,
+          )}`,
         );
       }
     };
     const recordAfterTurnCompactionRetry = async (
-      reason: string
+      reason: string,
     ): Promise<void> => {
       try {
         await this.recordDeferredCompactionDebt({
@@ -5371,8 +5364,8 @@ export class LcmContextEngine implements ContextEngine {
       } catch (err) {
         this.deps.log.warn(
           `[lcm] afterTurn: failed to persist deferred compaction retry for ${sessionLabel}: ${describeLogError(
-            err
-          )}`
+            err,
+          )}`,
         );
       }
     };
@@ -5386,7 +5379,7 @@ export class LcmContextEngine implements ContextEngine {
 
     try {
       rawLeafTrigger = await this.compaction.evaluateLeafTrigger(
-        conversation.conversationId
+        conversation.conversationId,
       );
       await this.updateCompactionTelemetry({
         conversationId: conversation.conversationId,
@@ -5397,8 +5390,8 @@ export class LcmContextEngine implements ContextEngine {
     } catch (err) {
       this.deps.log.warn(
         `[lcm] afterTurn: compaction telemetry update failed: ${describeLogError(
-          err
-        )}`
+          err,
+        )}`,
       );
     }
 
@@ -5411,7 +5404,7 @@ export class LcmContextEngine implements ContextEngine {
       const thresholdDecision = await this.compaction.evaluate(
         conversation.conversationId,
         tokenBudget,
-        liveContextTokens
+        liveContextTokens,
       );
       if (this.config.proactiveThresholdCompactionMode === "inline") {
         let leafCompactionScheduled = false;
@@ -5460,8 +5453,8 @@ export class LcmContextEngine implements ContextEngine {
           reason: thresholdDecision.shouldCompact
             ? "threshold"
             : leafDecision.shouldCompact
-            ? leafDecision.reason
-            : "leaf-trigger",
+              ? leafDecision.reason
+              : "leaf-trigger",
           tokenBudget,
           currentTokenCount: liveContextTokens,
         });
@@ -5469,8 +5462,8 @@ export class LcmContextEngine implements ContextEngine {
     } catch (err) {
       this.deps.log.warn(
         `[lcm] afterTurn: compaction policy check failed for ${sessionLabel}: ${describeLogError(
-          err
-        )}`
+          err,
+        )}`,
       );
     }
 
@@ -5484,8 +5477,8 @@ export class LcmContextEngine implements ContextEngine {
       } ${sessionLabel} newMessages=${newMessages.length} dedupedMessages=${
         dedupedNewMessages.length
       } ingestedMessages=${ingestBatch.length} duration=${formatDurationMs(
-        Date.now() - startedAt
-      )}`
+        Date.now() - startedAt,
+      )}`,
     );
   }
 
@@ -5526,8 +5519,8 @@ export class LcmContextEngine implements ContextEngine {
       if (!conversation) {
         this.deps.log.info(
           `[lcm] assemble: conversation lookup missed ${sessionLabel} duration=${formatDurationMs(
-            Date.now() - startedAt
-          )}`
+            Date.now() - startedAt,
+          )}`,
         );
         return {
           messages: params.messages,
@@ -5540,14 +5533,14 @@ export class LcmContextEngine implements ContextEngine {
           Number.isFinite(params.tokenBudget) &&
           params.tokenBudget > 0
           ? Math.floor(params.tokenBudget)
-          : 128_000
+          : 128_000,
       );
       const liveContextTokens = estimateSessionTokenCountForAfterTurn(
-        params.messages
+        params.messages,
       );
       const maintenance =
         await this.compactionMaintenanceStore.getConversationCompactionMaintenance(
-          conversation.conversationId
+          conversation.conversationId,
         );
       if (maintenance?.pending || maintenance?.running) {
         try {
@@ -5561,22 +5554,22 @@ export class LcmContextEngine implements ContextEngine {
         } catch (error) {
           this.deps.log.warn(
             `[lcm] assemble: deferred compaction execution failed for ${sessionLabel}: ${describeLogError(
-              error
-            )}`
+              error,
+            )}`,
           );
         }
       }
 
       const contextItems = await this.summaryStore.getContextItems(
-        conversation.conversationId
+        conversation.conversationId,
       );
       if (contextItems.length === 0) {
         this.deps.log.info(
           `[lcm] assemble: no context items conversation=${
             conversation.conversationId
           } ${sessionLabel} duration=${formatDurationMs(
-            Date.now() - startedAt
-          )}`
+            Date.now() - startedAt,
+          )}`,
         );
         return {
           messages: params.messages,
@@ -5588,7 +5581,7 @@ export class LcmContextEngine implements ContextEngine {
       // raw context items and clearly trails the current live history, keep
       // the live path to avoid dropping prompt context.
       const hasSummaryItems = contextItems.some(
-        (item) => item.itemType === "summary"
+        (item) => item.itemType === "summary",
       );
       if (!hasSummaryItems && contextItems.length < params.messages.length) {
         this.deps.log.info(
@@ -5596,7 +5589,7 @@ export class LcmContextEngine implements ContextEngine {
             conversation.conversationId
           } ${sessionLabel} contextItems=${contextItems.length} liveMessages=${
             params.messages.length
-          } duration=${formatDurationMs(Date.now() - startedAt)}`
+          } duration=${formatDurationMs(Date.now() - startedAt)}`,
         );
         return {
           messages: params.messages,
@@ -5621,8 +5614,8 @@ export class LcmContextEngine implements ContextEngine {
           } ${sessionLabel} contextItems=${
             contextItems.length
           } tokenBudget=${tokenBudget} duration=${formatDurationMs(
-            Date.now() - startedAt
-          )}`
+            Date.now() - startedAt,
+          )}`,
         );
         return {
           messages: params.messages,
@@ -5641,7 +5634,7 @@ export class LcmContextEngine implements ContextEngine {
           assembled.messages.length
         } tokenBudget=${tokenBudget} estimatedTokens=${
           assembled.estimatedTokens
-        } duration=${formatDurationMs(Date.now() - startedAt)}`
+        } duration=${formatDurationMs(Date.now() - startedAt)}`,
       );
 
       const result: AssembleResultWithSystemPrompt = {
@@ -5658,7 +5651,7 @@ export class LcmContextEngine implements ContextEngine {
           params.sessionKey?.trim()
             ? ` sessionKey=${params.sessionKey.trim()}`
             : ""
-        } error=${describeLogError(err)}`
+        } error=${describeLogError(err)}`,
       );
       return {
         messages: params.messages,
@@ -5670,7 +5663,7 @@ export class LcmContextEngine implements ContextEngine {
   /** Evaluate whether incremental leaf compaction should run for a session. */
   async evaluateLeafTrigger(
     sessionId: string,
-    sessionKey?: string
+    sessionKey?: string,
   ): Promise<{
     shouldCompact: boolean;
     rawTokensOutsideTail: number;
@@ -5681,7 +5674,7 @@ export class LcmContextEngine implements ContextEngine {
       {
         sessionId,
         sessionKey,
-      }
+      },
     );
     if (!conversation) {
       const fallbackThreshold =
@@ -5726,7 +5719,7 @@ export class LcmContextEngine implements ContextEngine {
           (legacyParams ?? {}) as {
             currentTokenCount?: unknown;
           }
-        ).currentTokenCount
+        ).currentTokenCount,
     );
     const { summarize, summaryModel, breakerKey } = await this.resolveSummarize(
       {
@@ -5734,9 +5727,9 @@ export class LcmContextEngine implements ContextEngine {
         customInstructions: params.customInstructions,
         breakerScope: this.resolveSessionQueueKey(
           params.sessionId,
-          params.sessionKey
+          params.sessionKey,
         ),
-      }
+      },
     );
     if (breakerKey && this.isCircuitBreakerOpen(breakerKey)) {
       return {
@@ -5747,7 +5740,7 @@ export class LcmContextEngine implements ContextEngine {
     }
 
     const storedTokensBefore = await this.summaryStore.getContextTokenCount(
-      params.conversationId
+      params.conversationId,
     );
     const maxPasses =
       typeof params.maxPasses === "number" &&
@@ -5756,7 +5749,7 @@ export class LcmContextEngine implements ContextEngine {
         ? Math.floor(params.maxPasses)
         : 1;
     const fallbackLeafChunkTokens = Array.isArray(
-      params.fallbackLeafChunkTokens
+      params.fallbackLeafChunkTokens,
     )
       ? [
           ...new Set(
@@ -5765,9 +5758,9 @@ export class LcmContextEngine implements ContextEngine {
                 (value): value is number =>
                   typeof value === "number" &&
                   Number.isFinite(value) &&
-                  value > 0
+                  value > 0,
               )
-              .map((value) => Math.floor(value))
+              .map((value) => Math.floor(value)),
           ),
         ].sort((a, b) => b - a)
       : [];
@@ -5783,10 +5776,10 @@ export class LcmContextEngine implements ContextEngine {
       } session=${params.sessionId} leafChunkTokens=${
         activeLeafChunkTokens ?? "null"
       } fallbackLeafChunkTokens=${fallbackLeafChunkTokens.join(
-        ","
+        ",",
       )} maxPasses=${maxPasses} activityBand=${
         params.activityBand ?? "unknown"
-      } allowCondensedPasses=${params.allowCondensedPasses !== false}`
+      } allowCondensedPasses=${params.allowCondensedPasses !== false}`,
     );
 
     let rounds = 0;
@@ -5817,7 +5810,7 @@ export class LcmContextEngine implements ContextEngine {
           const nextLeafChunkTokens = fallbackLeafChunkTokens.find(
             (value) =>
               activeLeafChunkTokens !== undefined &&
-              value < activeLeafChunkTokens
+              value < activeLeafChunkTokens,
           );
           if (
             !this.isRecoverableLeafChunkOverflowError(err) ||
@@ -5828,7 +5821,7 @@ export class LcmContextEngine implements ContextEngine {
           this.deps.log.warn(
             `[lcm] compactLeafAsync: retrying with smaller leafChunkTokens=${nextLeafChunkTokens} after provider token-limit error: ${
               err instanceof Error ? err.message : String(err)
-            }`
+            }`,
           );
           activeLeafChunkTokens = nextLeafChunkTokens;
         }
@@ -5871,7 +5864,7 @@ export class LcmContextEngine implements ContextEngine {
         rounds > 0
       } authFailure=${authFailure} finalLeafChunkTokens=${
         activeLeafChunkTokens ?? "null"
-      } finalTokens=${finalTokens}`
+      } finalTokens=${finalTokens}`,
     );
 
     return {
@@ -5880,8 +5873,8 @@ export class LcmContextEngine implements ContextEngine {
       reason: authFailure
         ? "provider auth failure"
         : rounds > 0
-        ? "compacted"
-        : "below threshold",
+          ? "compacted"
+          : "below threshold",
       result: {
         tokensBefore,
         tokensAfter: finalTokens,
@@ -5972,7 +5965,7 @@ export class LcmContextEngine implements ContextEngine {
           activityBand: params.activityBand,
           allowCondensedPasses: params.allowCondensedPasses,
         });
-      }
+      },
     );
   }
 
@@ -6030,7 +6023,7 @@ export class LcmContextEngine implements ContextEngine {
           conversationId: conversation.conversationId,
           sessionId: params.sessionId,
           sessionKey: params.sessionKey,
-          tokenBudget: params.tokenBudget,
+          tokenBudget: params.tokenBudget ?? 0,
           currentTokenCount: params.currentTokenCount,
           compactionTarget: params.compactionTarget,
           customInstructions: params.customInstructions,
@@ -6038,7 +6031,7 @@ export class LcmContextEngine implements ContextEngine {
           legacyParams: params.legacyParams,
           force: params.force,
         });
-      }
+      },
     );
   }
 
@@ -6063,9 +6056,8 @@ export class LcmContextEngine implements ContextEngine {
       return undefined;
     }
 
-    const conversationId = await this.resolveConversationIdForSessionKey(
-      parentSessionKey
-    );
+    const conversationId =
+      await this.resolveConversationIdForSessionKey(parentSessionKey);
     if (typeof conversationId !== "number") {
       return undefined;
     }
@@ -6086,9 +6078,9 @@ export class LcmContextEngine implements ContextEngine {
     const childTokenCap = parentGrant
       ? Math.min(
           getRuntimeExpansionAuthManager().getRemainingTokenBudget(
-            parentGrantId!
+            parentGrantId!,
           ) ?? this.config.maxExpandTokens,
-          this.config.maxExpandTokens
+          this.config.maxExpandTokens,
         )
       : this.config.maxExpandTokens;
 
@@ -6160,16 +6152,16 @@ export class LcmContextEngine implements ContextEngine {
 
   /** Detect the empty replacement row created during a prior lifecycle rollover. */
   private async isFreshLifecycleConversation(
-    conversation: ConversationRecord
+    conversation: ConversationRecord,
   ): Promise<boolean> {
     const currentMessageCount = await this.conversationStore.getMessageCount(
-      conversation.conversationId
+      conversation.conversationId,
     );
     if (currentMessageCount !== 0) {
       return false;
     }
     const currentContextItems = await this.summaryStore.getContextItems(
-      conversation.conversationId
+      conversation.conversationId,
     );
     return currentContextItems.length === 0 && !conversation.bootstrappedAt;
   }
@@ -6201,7 +6193,7 @@ export class LcmContextEngine implements ContextEngine {
         (await this.isFreshLifecycleConversation(current))
       ) {
         this.deps.log.info(
-          `[lcm] ${params.reason} lifecycle no-op for already fresh conversation ${current.conversationId}`
+          `[lcm] ${params.reason} lifecycle no-op for already fresh conversation ${current.conversationId}`,
         );
         return;
       }
@@ -6212,7 +6204,7 @@ export class LcmContextEngine implements ContextEngine {
       this.deps.log.info(
         `[lcm] ${params.reason} lifecycle archived conversation ${
           current?.conversationId ?? "(none)"
-        }`
+        }`,
       );
       return;
     }
@@ -6223,7 +6215,7 @@ export class LcmContextEngine implements ContextEngine {
       current?.sessionId;
     if (!nextSessionId) {
       this.deps.log.warn(
-        `[lcm] ${params.reason} lifecycle skipped: no session identity available`
+        `[lcm] ${params.reason} lifecycle skipped: no session identity available`,
       );
       return;
     }
@@ -6236,7 +6228,7 @@ export class LcmContextEngine implements ContextEngine {
       ...(nextSessionKey ? { sessionKey: nextSessionKey } : {}),
     });
     this.deps.log.info(
-      `[lcm] ${params.reason} lifecycle archived prior conversation and created ${freshConversation.conversationId}`
+      `[lcm] ${params.reason} lifecycle archived prior conversation and created ${freshConversation.conversationId}`,
     );
   }
 
@@ -6284,10 +6276,10 @@ export class LcmContextEngine implements ContextEngine {
                 : 2;
             await this.summaryStore.pruneForNewSession(
               conversation.conversationId,
-              retainDepth
+              retainDepth,
             );
             this.deps.log.info(
-              `[lcm] /new pruned conversation ${conversation.conversationId} to retain depth ${retainDepth}`
+              `[lcm] /new pruned conversation ${conversation.conversationId} to retain depth ${retainDepth}`,
             );
             return;
           }
@@ -6298,7 +6290,7 @@ export class LcmContextEngine implements ContextEngine {
             createReplacement: true,
             createReplacementWhenMissing: true,
           });
-        })
+        }),
     );
   }
 
@@ -6331,7 +6323,7 @@ export class LcmContextEngine implements ContextEngine {
     await this.withSessionQueue(
       this.resolveSessionQueueKey(
         params.nextSessionId ?? params.sessionId,
-        params.sessionKey ?? params.nextSessionKey
+        params.sessionKey ?? params.nextSessionKey,
       ),
       async () =>
         this.conversationStore.withTransaction(async () => {
@@ -6343,7 +6335,7 @@ export class LcmContextEngine implements ContextEngine {
             nextSessionKey: params.nextSessionKey,
             createReplacement,
           });
-        })
+        }),
     );
   }
 
@@ -6372,12 +6364,12 @@ export class LcmContextEngine implements ContextEngine {
 
     const keepTailMessageCount = normalizeRotateTailMessageCount(
       this.config.freshTailCount,
-      messageIndices.length
+      messageIndices.length,
     );
     const anchorIndex =
       keepTailMessageCount > 0
-        ? messageIndices[messageIndices.length - keepTailMessageCount] ??
-          branch.length
+        ? (messageIndices[messageIndices.length - keepTailMessageCount] ??
+          branch.length)
         : branch.length;
 
     const latestPreludeEntries = new Map<string, (typeof branch)[number]>();
@@ -6424,8 +6416,9 @@ export class LcmContextEngine implements ContextEngine {
         ...entry,
         parentId: previousEntryId,
       };
+      const entryWithId = nextEntry as Record<string, unknown>;
       previousEntryId =
-        typeof nextEntry.id === "string" ? nextEntry.id : previousEntryId;
+        typeof entryWithId.id === "string" ? entryWithId.id : previousEntryId;
       return nextEntry;
     });
 
@@ -6484,7 +6477,7 @@ export class LcmContextEngine implements ContextEngine {
         sessionFile: params.sessionFile,
       });
       this.deps.log.info(
-        `[lcm] rotate: rewrote transcript for conversation=${current.conversationId} session=${sessionId} sessionKey=${sessionKey} preservedTailMessages=${rewriteResult.preservedTailMessageCount} checkpointSize=${rewriteResult.checkpointSize} bytesRemoved=${rewriteResult.bytesRemoved}`
+        `[lcm] rotate: rewrote transcript for conversation=${current.conversationId} session=${sessionId} sessionKey=${sessionKey} preservedTailMessages=${rewriteResult.preservedTailMessageCount} checkpointSize=${rewriteResult.checkpointSize} bytesRemoved=${rewriteResult.bytesRemoved}`,
       );
       return {
         kind: "rotated",
@@ -6497,7 +6490,7 @@ export class LcmContextEngine implements ContextEngine {
       return {
         kind: "unavailable",
         reason: `Lossless Claw could not rotate the current session transcript: ${describeLogError(
-          error
+          error,
         )}`,
       };
     }
@@ -6541,8 +6534,8 @@ export class LcmContextEngine implements ContextEngine {
             sessionId,
             sessionKey,
             sessionFile: params.sessionFile,
-          })
-        )
+          }),
+        ),
     );
   }
 
@@ -6696,7 +6689,7 @@ export class LcmContextEngine implements ContextEngine {
 
               const currentMessageCount =
                 await this.conversationStore.getMessageCount(
-                  current.conversationId
+                  current.conversationId,
                 );
               let backupPath: string | null = null;
               try {
@@ -6760,20 +6753,20 @@ export class LcmContextEngine implements ContextEngine {
                 checkpointSize: rotateResult.checkpointSize,
                 bytesRemoved: rotateResult.bytesRemoved,
               };
-            }
+            },
           );
         } catch (error) {
           if (error instanceof DatabaseTransactionTimeoutError) {
             return {
               kind: "unavailable",
               reason: `Lossless Claw waited ${Math.floor(
-                params.lockTimeoutMs / 1000
+                params.lockTimeoutMs / 1000,
               )}s for the database to become idle, but another transaction never finished.`,
             };
           }
           throw error;
         }
-      }
+      },
     );
   }
 
@@ -6816,9 +6809,8 @@ export class LcmContextEngine implements ContextEngine {
    * Returns the number of messages deleted.
    */
   private async pruneHeartbeatOkTurns(conversationId: number): Promise<number> {
-    const allMessages = await this.conversationStore.getMessages(
-      conversationId
-    );
+    const allMessages =
+      await this.conversationStore.getMessages(conversationId);
     if (allMessages.length === 0) {
       return 0;
     }
@@ -6910,10 +6902,10 @@ function batchLooksLikeHeartbeatAckTurn(messages: AgentMessage[]): boolean {
 }
 
 function turnLooksLikeHeartbeatTurn(
-  turnMessages: Array<{ content: string }>
+  turnMessages: Array<{ content: string }>,
 ): boolean {
   return turnMessages.some((message) =>
-    message.content.toLowerCase().includes(HEARTBEAT_TURN_MARKER)
+    message.content.toLowerCase().includes(HEARTBEAT_TURN_MARKER),
   );
 }
 
@@ -6929,7 +6921,7 @@ function turnLooksLikeHeartbeatTurn(
  */
 function createEmergencyFallbackSummarize(): (
   text: string,
-  aggressive?: boolean
+  aggressive?: boolean,
 ) => Promise<string> {
   return async (text: string, aggressive?: boolean): Promise<string> => {
     const maxChars = aggressive ? 600 * 4 : 900 * 4;
